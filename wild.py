@@ -1,4 +1,4 @@
-from ParlAI.projects.convai.convai_world import ConvAIWorld
+#from ParlAI.projects.convai.convai_world import ConvAIWorld
 from parlai.core.params import ParlaiParser
 from agent import TransformerAgent
 
@@ -11,7 +11,7 @@ def main():
                         replace_repeat=True,
                         replace_ngram=True,
                         detokenize=True,
-                        emoji_prob=0.3,
+                        emoji_prob=0.0,
                         add_questions=0.4,
                         clean_emoji=True,
                         check_grammar=True,
@@ -23,18 +23,35 @@ def main():
                         annealing=0.6,
                         length_penalty=0.7)
 
-    ConvAIWorld.add_cmdline_args(parser)
+    #ConvAIWorld.add_cmdline_args(parser)
     TransformerAgent.add_cmdline_args(parser)
     opt = parser.parse_args()
 
     agent = TransformerAgent(opt)
-    world = ConvAIWorld(opt, [agent])
 
-    while True:
-        try:
-            world.parley()
-        except Exception as e:
-            print('Exception: {}'.format(e))
+    text = "your persona: i love to redesign houses. \n " \
+           "your persona: killing for sport is my hobby. \n" \
+           "your persona: i shot an arrow the other day !.\n" \
+           "your persona: i like to get dressed up.\n" \
+           "hi , how are you doing ? i'm getting ready to do some cheetah chasing to stay in shape .	you must be very fast . hunting is one of my favorite hobbies .\n" \
+           "i am ! for my hobby i like to do canning or some whittling .	i also remodel homes when i am not out bow hunting .\n" \
+           "that's neat . when i was in high school i placed 6th in 100m dash !	that's awesome . do you have a favorite season or time of year ?"
+
+    input_var = {
+                'id': 'MasterBot#%s' % 0,
+                'text': "I am good. How are you?",
+                'episode_done': False
+            }
+    observation = agent.observe(input_var)
+    response = agent.act()
+    print(response)
+    #world = ConvAIWorld(opt, [agent])
+
+    # while True:
+    #     try:
+    #         world.parley()
+    #     except Exception as e:
+    #         print('Exception: {}'.format(e))
 
 
 if __name__ == '__main__':

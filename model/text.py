@@ -1,21 +1,6 @@
-#  transformer_chatbot
-#  Copyright (C) 2018 Golovanov, Tselousov
-#
-#  This program is free software: you can redistribute it and/or modify
-#  it under the terms of the GNU Affero General Public License as published by
-#  the Free Software Foundation, either version 3 of the License, or
-#  (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU Affero General Public License for more details.
-#
-#  You should have received a copy of the GNU Affero General Public License
-#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 import spacy
 import ftfy
+
 
 class SpacyLowerTokenizer:
     def __init__(self):
@@ -65,12 +50,12 @@ class BPEVocab:
         return set(zip(string[:-1], string[1:]))
 
     def __init__(self, vocab, codes, tokenizer=SpacyLowerTokenizer()):
-        #TODO: add check for special tokens
+        # TODO: add check for special tokens
         self.spec_tokens = [BPEVocab.pad_token, BPEVocab.bos_token, BPEVocab.eos_token,
                             BPEVocab.info_bos, BPEVocab.info_eos, BPEVocab.talker1_bos,
                             BPEVocab.talker1_eos, BPEVocab.talker2_bos, BPEVocab.talker2_eos]
         vocab = self.spec_tokens + vocab
-        
+
         self.token2id = {t: i for i, t in enumerate(vocab)}
         self.id2token = {i: t for i, t in enumerate(vocab)}
         self.bpe_ranks = dict(zip(codes, range(len(codes))))
@@ -151,7 +136,7 @@ class BPEVocab:
                     new_word.extend(word[i:])
                     break
 
-                if word[i] == first and i < len(word)-1 and word[i+1] == second:
+                if word[i] == first and i < len(word) - 1 and word[i + 1] == second:
                     new_word.append(first + second)
                     i += 2
                 else:
@@ -176,8 +161,7 @@ class BPEVocab:
 
         return ids
 
-
     def ids2string(self, ids):
         bpe_tokens = [self.id2token[id] for id in ids]
-    
+
         return ''.join(bpe_tokens).replace(BPEVocab.we, ' ')

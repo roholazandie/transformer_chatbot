@@ -4,3 +4,6 @@
 checkpoints/*
 parameters/*
 ParlAI/*
+datasets/*
+model/parameters/*
+env/*

@@ -1,23 +1,7 @@
-#  transformer_chatbot
-#  Copyright (C) 2018 Golovanov, Tselousov
-#
-#  This program is free software: you can redistribute it and/or modify
-#  it under the terms of the GNU Affero General Public License as published by
-#  the Free Software Foundation, either version 3 of the License, or
-#  (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU Affero General Public License for more details.
-#
-#  You should have received a copy of the GNU Affero General Public License
-#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 import random
 import torch
 from torch.utils.data import Dataset
-from .text import BPEVocab
+from text import BPEVocab
 
 
 class FacebookDataset(Dataset):
@@ -59,25 +43,25 @@ class FacebookDataset(Dataset):
         for chat in data:
             persona_info = [vocab.string2ids(s) for s in chat['persona_info']]
             dialog = [vocab.string2ids(s) for s in chat['dialog']]
-
+            # remove the last dialog if the number of dialogs are not even(it should be always two way dialogs)
             if len(dialog) % 2 == 1:
                 dialog = dialog[:-1]
-           
+
             dataset.append((persona_info, dialog))
 
         return dataset
 
     def __init__(self, paths, vocab, max_lengths=2048, min_infos=2):
-        assert min_infos > 0             
+        assert min_infos > 0
 
         if isinstance(paths, str):
             paths = [paths]
-        
+
         self.vocab = vocab
         self.max_lengths = max_lengths
         self.min_infos = min_infos
 
-        parsed_data = sum([FacebookDataset.parse_data(path) for path in paths], [])
+        parsed_data = sum([FacebookDataset.parse_data(path) for path in paths], [])  # concatenation
         self.data = FacebookDataset.make_dataset(parsed_data, vocab, max_lengths)
 
     def __len__(self):
@@ -90,23 +74,65 @@ class FacebookDataset(Dataset):
             n_info_samples = max(self.min_infos, random.randint(1, len(persona_info)))
             n_info_samples = min(n_info_samples, len(persona_info))
             persona_info = random.sample(persona_info, n_info_samples)
-            random.shuffle(persona_info)
-            persona_info = sum(persona_info, []) 
-            persona_info = [self.vocab.info_bos_id] + persona_info[:self.max_lengths-2] + [self.vocab.info_eos_id]
+            random.shuffle(persona_info)  # not really neccesary the previous line does that
+            persona_info = sum(persona_info, [])  # concatenate all the persona infos
+            #todo rooh: persona_info is one list (not a list of lists) so there is no padding in reality
+            persona_info = [self.vocab.info_bos_id] + persona_info[:self.max_lengths - 2] + [self.vocab.info_eos_id]
 
         dialog_begin = 0
-        dialog_end = random.randrange(2, len(dialog)+1, 2)
+        dialog_end = random.randrange(2, len(dialog) + 1, 2)
 
         h = []
-        for i, ids in enumerate(dialog[dialog_begin:dialog_end-1], 1):
+        for i, ids in enumerate(dialog[dialog_begin:dialog_end - 1], 1):
             if i % 2 == 1:
                 ids = [self.vocab.talker1_bos_id] + ids + [self.vocab.talker1_eos_id]
             else:
                 ids = [self.vocab.talker2_bos_id] + ids + [self.vocab.talker2_eos_id]
-            h.extend(ids)
+            h.extend(ids) #todo rooh: if h is a list of lists then collate_func has a meaning, currently h is one list of all dialogs together
         h = h[-self.max_lengths:]
 
-        y = [self.vocab.bos_id] + dialog[dialog_end-1] + [self.vocab.eos_id]
-        y = y[:self.max_lengths]
+        y = [self.vocab.bos_id] + dialog[dialog_end - 1] + [self.vocab.eos_id]
+        y = y[:self.max_lengths] #todo rooh: currently y is not a list of list
 
         return persona_info, h, y
+
+
+if __name__ == "__main__":
+    from utils import pad_sequence
+    from torch.utils.data import Dataset, DataLoader
+    from config import get_model_config, get_trainer_config
+
+    model_config = get_model_config()
+    trainer_config = get_trainer_config()
+    vocab = BPEVocab.from_files(model_config.bpe_vocab_path, model_config.bpe_codes_path)
+
+
+    def collate_func(data):
+        persona_info, h, y = zip(*data)
+
+        contexts = []
+
+        if max(map(len, persona_info)) > 0:
+            persona_info = [torch.tensor(d, dtype=torch.long) for d in persona_info]
+            persona_info = pad_sequence(persona_info, batch_first=True, padding_value=vocab.pad_id)
+            contexts.append(persona_info)
+
+        if max(map(len, h)) > 0:
+            h = [torch.tensor(d, dtype=torch.long) for d in h]
+            h = pad_sequence(h, batch_first=True, padding_value=vocab.pad_id)
+            contexts.append(h)
+
+        y = [torch.tensor(d, dtype=torch.long) for d in y]
+        y = pad_sequence(y, batch_first=True, padding_value=vocab.pad_id)
+
+        return contexts, y
+
+
+    path = '../datasets/ConvAI2/train_self_revised_no_cands.txt'
+    batch_size = 1
+    dataset = FacebookDataset(path, vocab=vocab)
+    train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
+                                  num_workers=3, collate_fn=collate_func)
+
+    for d in train_dataloader:
+        print(d)

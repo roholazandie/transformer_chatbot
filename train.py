@@ -30,7 +30,7 @@ def main():
                                    bos_id=vocab.bos_id,
                                    eos_id=vocab.eos_id,
                                    max_seq_len=model_config.max_seq_len,
-                                   beam_size=model_config.beam_size,  
+                                   beam_size=model_config.beam_size,
                                    length_penalty=model_config.length_penalty,
                                    n_segments=model_config.n_segments,
                                    annealing_topk=model_config.annealing_topk,
@@ -39,7 +39,7 @@ def main():
                                    diversity_groups=model_config.diversity_groups)
 
     if not trainer_config.load_last:
-        load_openai_weights(transformer.transformer_module, 
+        load_openai_weights(transformer.transformer_module,
                             trainer_config.openai_parameters_dir,
                             n_special_tokens=vocab.n_special_tokens)
         print('OpenAI weights loaded from {}'.format(trainer_config.openai_parameters_dir))
@@ -48,16 +48,16 @@ def main():
     test_dataset = FacebookDataset(trainer_config.test_datasets, vocab, transformer.n_pos_embeddings - 1)
 
     model_trainer = Trainer(transformer,
-                            train_dataset, 
-                            test_dataset, 
+                            train_dataset,
+                            test_dataset,
                             batch_size=trainer_config.batch_size,
-                            batch_split=trainer_config.batch_split, 
-                            lr=trainer_config.lr, 
-                            lr_warmup=trainer_config.lr_warmup, 
+                            batch_split=trainer_config.batch_split,
+                            lr=trainer_config.lr,
+                            lr_warmup=trainer_config.lr_warmup,
                             lm_weight=trainer_config.lm_weight,
-                            risk_weight=trainer_config.risk_weight, 
-                            n_jobs=trainer_config.n_jobs, 
-                            clip_grad=trainer_config.clip_grad, 
+                            risk_weight=trainer_config.risk_weight,
+                            n_jobs=trainer_config.n_jobs,
+                            clip_grad=trainer_config.clip_grad,
                             device=device,
                             ignore_idxs=vocab.special_tokens_ids)
 
@@ -65,20 +65,20 @@ def main():
         state_dict = torch.load(trainer_config.last_checkpoint_path, map_location=device)
         model_trainer.load_state_dict(state_dict)
         print('Weights loaded from {}'.format(trainer_config.last_checkpoint_path))
-    
 
     # helpers -----------------------------------------------------
     def save_func(epoch):
-        torch.save(model_trainer.state_dict(), trainer_config.last_checkpoint_path)  
+        torch.save(model_trainer.state_dict(), trainer_config.last_checkpoint_path)
 
     def sample_text_func(epoch):
         n_samples = 5
         samples_idxs = random.sample(range(len(test_dataset)), n_samples)
         samples = [test_dataset[idx] for idx in samples_idxs]
         for persona_info, dialog, target in samples:
-            contexts = [torch.tensor([c], dtype=torch.long, device=model_trainer.device) for c in [persona_info, dialog] if len(c) > 0]
+            contexts = [torch.tensor([c], dtype=torch.long, device=model_trainer.device) for c in [persona_info, dialog]
+                        if len(c) > 0]
             prediction = model_trainer.model.predict(contexts)[0]
-            
+
             persona_info_str = vocab.ids2string(persona_info[1:-1])
             dialog_str = vocab.ids2string(dialog)
             dialog_str = dialog_str.replace(vocab.talker1_bos, '\n\t- ').replace(vocab.talker2_bos, '\n\t- ')
@@ -93,19 +93,19 @@ def main():
             print('Prediction:\n\t{}'.format(prediction_str))
 
     def test_func(epoch):
-        if (epoch+1) % trainer_config.test_period == 0:
+        if (epoch + 1) % trainer_config.test_period == 0:
             metric_funcs = {'f1_score': f1_score}
             model_trainer.test(metric_funcs)
-    
+
     def f1_risk(predictions, targets):
         scores = f1_score(predictions, targets, average=False)
-        return [1-s for s in scores] 
+        return [1 - s for s in scores]
 
-    # helpers -----------------------------------------------------
-    
+        # helpers -----------------------------------------------------
 
     try:
-        model_trainer.train(trainer_config.n_epochs, after_epoch_funcs=[save_func, sample_text_func, test_func], risk_func=f1_risk)
+        model_trainer.train(trainer_config.n_epochs, after_epoch_funcs=[save_func, sample_text_func, test_func],
+                            risk_func=f1_risk)
     except (KeyboardInterrupt, Exception, RuntimeError) as e:
         torch.save(model_trainer.state_dict(), trainer_config.interrupt_checkpoint_path)
         raise e
@@ -113,4 +113,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

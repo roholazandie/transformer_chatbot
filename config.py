@@ -4,9 +4,9 @@ from model.utils import openai_transformer_config
 
 def get_model_config():
     default_config = openai_transformer_config()
-    config = AttrDict({'bpe_vocab_path': './parameters/bpe.vocab',
-                       'bpe_codes_path': './parameters/bpe.code',
-                       'checkpoint_path': './checkpoints/last_checkpoint', 
+    config = AttrDict({'bpe_vocab_path': './model/parameters/bpe.vocab',
+                       'bpe_codes_path': './model/parameters/bpe.code',
+                       'checkpoint_path': './checkpoints/last_checkpoint',
                        'n_layers': default_config.n_layers,
                        'n_pos_embeddings': 512,
                        'embeddings_size': default_config.embeddings_size,
@@ -42,15 +42,15 @@ def get_trainer_config():
                        'seed': 0,
                        'device': 'cuda',
                        'load_last': True, 
-                       'openai_parameters_dir': './parameters',
-                       'last_checkpoint_path': './checkpoints/last_checkpoint',
-                       'interrupt_checkpoint_path': './checkpoints/interrupt_checkpoint',
-                       'train_datasets': ['./datasets/ConvAI2/train_self_revised_no_cands.txt',
-                                          './datasets/ConvAI2/train_self_original_no_cands.txt',
-                                          './datasets/DailyDialog/train_dailydialog.txt'],
-                       'test_datasets': ['./datasets/ConvAI2/valid_self_revised_no_cands.txt',
-                                         './datasets/ConvAI2/valid_self_original_no_cands.txt',
-                                         './datasets/DailyDialog/valid_dailydialog.txt']})
+                       'openai_parameters_dir': './model/parameters',
+                       'last_checkpoint_path': '../checkpoints/last_checkpoint',
+                       'interrupt_checkpoint_path': '../checkpoints/interrupt_checkpoint',
+                       'train_datasets': ['../datasets/ConvAI2/train_self_revised_no_cands.txt',
+                                          '../datasets/ConvAI2/train_self_original_no_cands.txt',
+                                          '../datasets/DailyDialog/train_dailydialog.txt'],
+                       'test_datasets': ['../datasets/ConvAI2/valid_self_revised_no_cands.txt',
+                                         '../datasets/ConvAI2/valid_self_original_no_cands.txt',
+                                         '../datasets/DailyDialog/valid_dailydialog.txt']})
 
     return config
 

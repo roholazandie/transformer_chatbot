@@ -187,7 +187,7 @@ class TransformerAgent(Agent):
                 self.history['str_info'] = ' '.join(info)
             self.history['str_dialog'].extend(dialog)
         
-            info = sum([self.vocab.string2ids(i) for i in info], [])
+            info = sum([self.vocab.string2ids(i) for i in info], []) # concatenate all ids
             self.history['info'].extend(info)
 
             for i, d in enumerate(dialog, 1):
@@ -199,7 +199,7 @@ class TransformerAgent(Agent):
 
                 self.history['dialog'].extend(d)
 
-        observation['agent'] = self        
+        observation['agent'] = self # what's the use of this?
 
         self.episode_done = observation['episode_done']
         self.observation = observation
@@ -207,7 +207,7 @@ class TransformerAgent(Agent):
         return observation
     
     def act(self):
-        return self.batch_act([self.observation])[0]
+        return self.batch_act([self.observation])[0] #select the first one which is the highest rank response from a batch of responses
 
     def _postprocess_text(self, reply, agent):
         str_reply = self.vocab.ids2string(reply)
@@ -253,7 +253,7 @@ class TransformerAgent(Agent):
 
         try:
             valid_observations = [observations[i] for i in valid_ids]
-
+            # we trim to model.n_pos_embeddings-3 to be able to add the eos and bos and fit to network
             infos = [obs['agent'].history['info'][:self.model.n_pos_embeddings-3] for obs in valid_observations]
             infos = [([self.vocab.info_bos_id] + ifo + [self.vocab.info_eos_id] if len(ifo) else ifo) for ifo in infos]
             dialogs = [list(obs['agent'].history['dialog'])[-self.model.n_pos_embeddings+1:] for obs in valid_observations]
