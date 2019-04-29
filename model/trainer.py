@@ -17,7 +17,7 @@ class Trainer:
 
         if torch.cuda.device_count() > 1:
             print("Let's use ", torch.cuda.device_count(), "GPU's")
-            self.model = nn.DataParallel(model)
+            self.model = nn.DataParallel(model, device_ids=[0, 2])
 
         self.model = self.model.to(device)
         self.lm_criterion = nn.CrossEntropyLoss(ignore_index=self.model.module.padding_idx).to(device)
