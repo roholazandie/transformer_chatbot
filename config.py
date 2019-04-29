@@ -4,8 +4,8 @@ from model.utils import openai_transformer_config
 
 def get_model_config():
     default_config = openai_transformer_config()
-    config = AttrDict({'bpe_vocab_path': './model/parameters/bpe.vocab',
-                       'bpe_codes_path': './model/parameters/bpe.code',
+    config = AttrDict({'bpe_vocab_path': '/home/rohola/Codes/Python/transformer_chatbot/model/parameters/bpe.vocab',
+                       'bpe_codes_path': '/home/rohola/Codes/Python/transformer_chatbot/model/parameters/bpe.code',
                        'checkpoint_path': './checkpoints/last_checkpoint',
                        'n_layers': default_config.n_layers,
                        'n_pos_embeddings': 512,
@@ -22,7 +22,7 @@ def get_model_config():
                        'annealing_topk': None,
                        'annealing': 0,
                        'length_penalty': 0.6,
-                       'n_segments': None})
+                       'n_segments': None})#todo rooh: what's n_segment?
 
     return config
 
@@ -34,23 +34,24 @@ def get_trainer_config():
                        'lr': 6.25e-5,
                        'lr_warmup': 16000,
                        'lm_weight': 0.5,
-                       'risk_weight': 0,
+                       'risk_weight': 0.1,
                        'n_jobs': 4,
                        'label_smoothing': 0.1,
                        'clip_grad': None,
                        'test_period': 1,
                        'seed': 0,
-                       'device': 'cuda',
-                       'load_last': True, 
-                       'openai_parameters_dir': './model/parameters',
-                       'last_checkpoint_path': '../checkpoints/last_checkpoint',
-                       'interrupt_checkpoint_path': '../checkpoints/interrupt_checkpoint',
-                       'train_datasets': ['../datasets/ConvAI2/train_self_revised_no_cands.txt',
-                                          '../datasets/ConvAI2/train_self_original_no_cands.txt',
-                                          '../datasets/DailyDialog/train_dailydialog.txt'],
-                       'test_datasets': ['../datasets/ConvAI2/valid_self_revised_no_cands.txt',
-                                         '../datasets/ConvAI2/valid_self_original_no_cands.txt',
-                                         '../datasets/DailyDialog/valid_dailydialog.txt']})
-
+                       'device': 'cpu', #'cuda',
+                       'load_last': False,
+                       'openai_parameters_dir': '/home/rohola/Codes/Python/transformer_chatbot/model/parameters',
+                       'last_checkpoint_path': './checkpoints/new_checkpoint',
+                       'interrupt_checkpoint_path': './checkpoints/interrupt_checkpoint',
+                       'train_datasets': ['datasets/ConvAI2/train_self_revised_no_cands.txt',
+                                          'datasets/ConvAI2/train_self_original_no_cands.txt'
+                                          ],
+                       'test_datasets': ['datasets/ConvAI2/valid_self_revised_no_cands.txt',
+                                         'datasets/ConvAI2/valid_self_original_no_cands.txt'
+                                         ]})
+    #'datasets/DailyDialog/train_dailydialog.txt'
+    #'datasets/DailyDialog/valid_dailydialog.txt'
     return config
 

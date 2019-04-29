@@ -32,7 +32,7 @@ class Trainer:
         self.risk_weight = risk_weight
         self.clip_grad = clip_grad
         self.device = device
-        self.ignore_idxs = ignore_idxs
+        self.ignore_idxs = ignore_idxs # for special characters <UNK>, <bos>, ...total=8
 
     def state_dict(self):
         return {'model': self.model.state_dict(),
@@ -81,16 +81,16 @@ class Trainer:
                 enc_contexts.append(enc_context)
 
                 if self.lm_weight > 0:
-                    context_outputs = self.model.generate(enc_context[0])  # gives presoftmax weights
+                    context_outputs = self.model.generate(enc_context[0])  #we select the zero element because it's the real encoding, the enc_context[1] is padding_mask gives presoftmax weights
                     ignore_mask = torch.stack([context == idx for idx in self.ignore_idxs], dim=-1).any(dim=-1)
-                    context.masked_fill_(ignore_mask, self.model.padding_idx)
+                    context.masked_fill_(ignore_mask, self.model.padding_idx) #this line and the previous one removes the special characters
                     prevs, nexts = context_outputs[:, :-1, :].contiguous(), context[:, 1:].contiguous()
                     batch_lm_loss += (
                                 self.lm_criterion(prevs.view(-1, prevs.shape[-1]), nexts.view(-1)) / len(contexts))
 
             # s2s loss
             prevs, nexts = targets[:, :-1].contiguous(), targets[:, 1:].contiguous()
-            outputs = self.model.decode(prevs, enc_contexts)
+            outputs = self.model.decode(prevs, enc_contexts) # this gives the pre-softmax todo: rooh, write a softmax function in model
             outputs = F.log_softmax(outputs, dim=-1)
             batch_loss = self.criterion(outputs.view(-1, outputs.shape[-1]), nexts.view(-1))
 
@@ -135,7 +135,7 @@ class Trainer:
                 self.optimizer.step()
                 self.optimizer.zero_grad()
 
-            lm_loss = (i * lm_loss + batch_lm_loss.item()) / (i + 1)
+            lm_loss = (i * lm_loss + batch_lm_loss.item()) / (i + 1) #online average
             loss = (i * loss + batch_loss.item()) / (i + 1)
             risk_loss = (i * risk_loss + batch_risk_loss.item()) / (i + 1)
 
@@ -172,7 +172,7 @@ class Trainer:
             outputs = self.model.decode(prevs, enc_contexts)
             outputs = F.log_softmax(outputs, dim=-1)
             batch_loss = self.criterion(outputs.view(-1, outputs.shape[-1]), nexts.view(-1))
-
+            #new compared to eval_train
             predictions = self.model.beam_search(enc_contexts)
             target_lens = targets.ne(self.model.padding_idx).sum(dim=-1)
             targets = [t[1:l - 1].tolist() for t, l in

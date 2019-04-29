@@ -10,6 +10,7 @@ from scipy.interpolate import RectBivariateSpline
 from torch.utils.checkpoint import checkpoint
 
 
+
 def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -114,9 +115,10 @@ def load_openai_weights(model, directory, n_special_tokens=0):
     parameters_weights = np.split(np.concatenate(parameters_weights, 0), parameters_offsets)[:-1]
     parameters_weights = [p.reshape(s) for p, s in zip(parameters_weights, parameters_shapes)]
 
-    parameters_weights[1] = parameters_weights[1][1:] # skip 0 - <unk> 
+    parameters_weights[1] = parameters_weights[1][1:] # skip 0 - <unk> #todo new compared to original
 
-
+    #todo rooh: here they tried to implement the position embedding themselves
+    #todo rooh: try to replace with the default reading from file
     if model.pos_embeddings.num_embeddings - 1 > parameters_weights[0].shape[0]:
         xx = np.linspace(0, parameters_weights[0].shape[0], model.pos_embeddings.num_embeddings - 1)
         new_kernel = RectBivariateSpline(np.arange(parameters_weights[0].shape[0]),
@@ -156,3 +158,29 @@ def load_openai_weights(model, directory, n_special_tokens=0):
             weights = weights[0].transpose((1, 0))
 
         pointer.data[...] = torch.from_numpy(weights)
+
+
+if __name__ == "__main__":
+    from transformer_module import TransformerModule
+    from config import get_model_config, get_trainer_config
+    from model.text import BPEVocab
+
+    model_config = get_model_config()
+    trainer_config = get_trainer_config()
+    vocab = BPEVocab.from_files(model_config.bpe_vocab_path, model_config.bpe_codes_path)
+
+    transformer_module = TransformerModule(n_layers=model_config.n_layers,
+                                          n_embeddings=len(vocab),
+                                          n_pos_embeddings=model_config.n_pos_embeddings,
+                                          embeddings_size=model_config.embeddings_size,
+                                          padding_idx=vocab.pad_id,
+                                          n_heads=model_config.n_heads,
+                                          dropout=model_config.dropout,
+                                          embed_dropout=model_config.embed_dropout,
+                                          attn_dropout=model_config.attn_dropout,
+                                          ff_dropout=model_config.ff_dropout,
+                                          n_segments=model_config.n_segments,
+                                          )
+    load_openai_weights(transformer_module,
+                        trainer_config.openai_parameters_dir,
+                        vocab.n_special_tokens)

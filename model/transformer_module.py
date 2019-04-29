@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .utils import checkpoint_sequential
+from utils import checkpoint_sequential
 
 
 class MultiheadAttention(nn.Module):
@@ -129,7 +129,7 @@ class TransformerBlock(nn.Module):
 
     def forward(self, x, padding_mask, *contexts):
         '''contexts = [(context1, padding_mask1), ...]'''
-
+        #todo rooh: the contribution of the alg lies here
         inputs = (x, padding_mask) + contexts
 
         full_attn = 0
@@ -137,7 +137,7 @@ class TransformerBlock(nn.Module):
         for i in range(0, len(inputs), 2):
             c, m = inputs[i], inputs[i+1].byte()
             a = self.attn(x, c, c, m)
-            full_attn += (a / n_attn)
+            full_attn += (a / n_attn) # todo rooh: looks like the way it calculates the mean is wrong.
 
         full_attn = self.dropout(full_attn)
         x = self.attn_norm(x + full_attn)
@@ -154,7 +154,7 @@ class TransformerModule(nn.Module):
                  padding_idx, n_heads, dropout, embed_dropout, attn_dropout, ff_dropout, 
                  n_segments=None):
         super(TransformerModule, self).__init__()
-
+        # todo rooh: rename self.embeddings to self.token_embeddings
         self.embeddings = nn.Embedding(n_embeddings, embeddings_size, padding_idx=padding_idx)
         self.pos_embeddings = nn.Embedding(n_pos_embeddings + 1, embeddings_size, padding_idx=0)
         self.embed_dropout = nn.Dropout(embed_dropout)
@@ -168,6 +168,7 @@ class TransformerModule(nn.Module):
         nn.init.normal_(self.pos_embeddings.weight, std=0.02)
 
     def forward(self, x, enc_contexts=[]):
+        #todo rooh: rename x with input_ids
         padding_mask = x.eq(self.embeddings.padding_idx)
 
         positions = torch.cumsum(~padding_mask, dim=-1, dtype=torch.long)
@@ -186,6 +187,6 @@ class TransformerModule(nn.Module):
         else:
             for layer in self.layers:
                 out = layer(x, padding_mask, *enc_contexts)
-                x = out[0]
+                x = out[0] #todo rooh: this select only the x, needs a refactoring to clean up
         
         return x, padding_mask
