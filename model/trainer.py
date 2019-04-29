@@ -130,8 +130,7 @@ class Trainer:
                 batch_risk_loss = torch.mean((batch_risks * batch_probas).sum(dim=-1))
 
             # optimization
-            full_loss = (
-                                    batch_lm_loss * self.lm_weight + self.risk_weight * batch_risk_loss + batch_loss) / self.batch_split
+            full_loss = (batch_lm_loss * self.lm_weight + self.risk_weight * batch_risk_loss + batch_loss) / self.batch_split
             full_loss.backward()
 
             if (i + 1) % self.batch_split == 0:
@@ -147,6 +146,7 @@ class Trainer:
             risk_loss = (i * risk_loss + batch_risk_loss.item()) / (i + 1)
 
             tqdm_data.set_postfix({'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss})
+            print(str({'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss}))
 
     def _eval_test(self, metric_funcs={}):
         self.model.module.eval()
