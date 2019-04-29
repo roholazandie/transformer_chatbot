@@ -19,7 +19,7 @@ class Trainer:
             print("Let's use ", torch.cuda.device_count(), "GPU's")
             self.model = nn.DataParallel(model)
 
-        #self.model = model.to(device)
+        self.model = model.to(device)
         self.lm_criterion = nn.CrossEntropyLoss(ignore_index=self.model.module.padding_idx).to(device)
         self.criterion = LabelSmoothingLoss(n_labels=self.model.module.n_embeddings, smoothing=label_smoothing,
                                             ignore_index=self.model.module.padding_idx).to(device)
