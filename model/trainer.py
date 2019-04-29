@@ -14,7 +14,12 @@ class Trainer:
                  batch_split=1, lm_weight=0.5, risk_weight=0, lr=6.25e-5, lr_warmup=2000,
                  n_jobs=0, clip_grad=None, label_smoothing=0, device=torch.device('cuda'),
                  ignore_idxs=[]):
-        self.model = model.to(device)
+
+        if torch.cuda.device_count() > 1:
+            print("Let's use ", torch.cuda.device_count(), "GPU's")
+            self.model = nn.DataParallel(model)
+
+        #self.model = model.to(device)
         self.lm_criterion = nn.CrossEntropyLoss(ignore_index=self.model.padding_idx).to(device)
         self.criterion = LabelSmoothingLoss(n_labels=self.model.n_embeddings, smoothing=label_smoothing,
                                             ignore_index=self.model.padding_idx).to(device)
@@ -65,6 +70,7 @@ class Trainer:
     def _eval_train(self, epoch, risk_func=None):
         self.model.train()  # set the model to training mode(this is not training)
 
+        #tqdm.monitor_interval = 0
         tqdm_data = tqdm(self.train_dataloader, desc='Train (epoch #{})'.format(epoch))
         loss = 0
         lm_loss = 0

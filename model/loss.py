@@ -11,14 +11,14 @@ class LabelSmoothingLoss(nn.Module):
         self.confidence = 1 - smoothing
 
         if smoothing > 0:
-            self.criterion = nn.KLDivLoss(size_average=size_average)
+            self.criterion = nn.KLDivLoss(size_average=size_average) #todo rooh: change size_average=size_average to reduction='mean'
             n_ignore_idxs = 1 + (ignore_index >= 0)
             one_hot = torch.full((1, n_labels), fill_value=(smoothing / (n_labels - n_ignore_idxs)))
             if ignore_index >= 0:
                 one_hot[0, ignore_index] = 0
             self.register_buffer('one_hot', one_hot)
         else:
-            self.criterion = nn.NLLLoss(size_average=size_average, ignore_index=ignore_index)
+            self.criterion = nn.NLLLoss(size_average=size_average, ignore_index=ignore_index) #todo rooh: size_average=size_average to reduction='mean'
         
     def forward(self, log_inputs, targets):
         if self.confidence < 1:#todo what's happening here?
