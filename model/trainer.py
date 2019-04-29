@@ -15,6 +15,7 @@ class Trainer:
                  n_jobs=0, clip_grad=None, label_smoothing=0, device=torch.device('cuda'),
                  ignore_idxs=[]):
 
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         if torch.cuda.device_count() > 1:
             print("Let's use ", torch.cuda.device_count(), "GPU's")
             self.model = nn.DataParallel(model, device_ids=[0, 2])
@@ -76,8 +77,7 @@ class Trainer:
         lm_loss = 0
         risk_loss = 0
         for i, (contexts, targets) in enumerate(tqdm_data):
-            #contexts, targets = [c.to(self.device) for c in contexts], targets.to(self.device)
-            contexts, targets = [c.to('cuda:0') for c in contexts], targets.to('cuda:0')
+            contexts, targets = [c.to(self.device) for c in contexts], targets.to(self.device)
 
             enc_contexts = []
 
