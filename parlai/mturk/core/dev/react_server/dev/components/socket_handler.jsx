@@ -428,7 +428,7 @@ class SocketHandler extends React.Component {
 
   // Handle incoming command messages
   handleCommand(msg) {
-    let command = msg['text'];
+    let command = msg['utils.text'];
     log('Received command ' + command, 1);
     if (command === COMMAND_SEND_MESSAGE) {
       // Update UI to wait for the worker to submit a message

@@ -3,12 +3,12 @@ import torch.nn.functional as F
 from collections import deque
 from parlai.core.agents import Agent
 from model.transformer_model import TransformerModel
-from model.text import BPEVocab
-from model.utils import pad_sequence
+from utils.text import BPEVocab
+from utils.utils import pad_sequence
 from model.postprocessing import ngram_replaser, ReplyChecker, detokenize, syntax_fix
-from model.retrieval import RetrievalBot, DIALOG_SIZE
-from model.sentiment import pick_emoji, clean_emoji
-from config import get_model_config
+from utils.retrieval import RetrievalBot, DIALOG_SIZE
+from utils.sentiment import pick_emoji, clean_emoji
+from model.config import get_model_config
 import random
 
       

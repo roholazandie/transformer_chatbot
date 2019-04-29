@@ -288,22 +288,22 @@ of patent rights can be found in the PATENTS file in the same directory.
 
         displayed_messages.push(new_message_id);
 				if (agent_id === 'ACTION') {
-					if (message['text'] == 'ACTION:TURNLEFT') {
+					if (message['utils.text'] == 'ACTION:TURNLEFT') {
 						turn_left();
 					}
-					else if (message['text'] == 'ACTION:TURNRIGHT') {
+					else if (message['utils.text'] == 'ACTION:TURNRIGHT') {
 						turn_right();
 					}
-					else if (message['text'] == 'ACTION:FORWARD') {
+					else if (message['utils.text'] == 'ACTION:FORWARD') {
 						forward();
 					}
 				}
         if (agent_id == 'WORLD_LOCATION') {
             init();
-            loc = message['text']['location'];
+            loc = message['utils.text']['location'];
             lon = loc[2]*90 + 180;
-            boundaries = message['text']['boundaries'];
-            neighborhood = message['text']['neighborhood'];
+            boundaries = message['utils.text']['boundaries'];
+            neighborhood = message['utils.text']['neighborhood'];
 
             show(onWindowResize);
             draw_arrows('white', 'white', 'white');
@@ -327,11 +327,11 @@ of patent rights can be found in the PATENTS file in the same directory.
             $('#inactive').css('color', '#fff');
             $('#right-bottom-pane').css('background-color', '#ff3b30');
         } else if (agent_id === 'Guide' && !message['episode_done']) {
-						if (message['text'] !== '') {
+						if (message['utils.text'] !== '') {
 							$('div#message_thread').append(`
 	                <div class="row" style="margin-left: 0; margin-right: 0">
 	                    <div class="alert alert-warning" role="alert" style="float: right; display:table">
-	                        <span style="font-size: 16px"><b>` + agent_id + `</b>: ` + message['text'] + `</span>
+	                        <span style="font-size: 16px"><b>` + agent_id + `</b>: ` + message['utils.text'] + `</span>
 	                    </div>
 	                </div>
 	            `);
@@ -339,11 +339,11 @@ of patent rights can be found in the PATENTS file in the same directory.
             show_navigation = true;
             draw_arrows('white', 'white', 'white');
 
-        } else if (!agent_id.startsWith('WORLD') && message['text'] && !message['text'].startsWith('ACTION:')) {
+        } else if (!agent_id.startsWith('WORLD') && message['utils.text'] && !message['utils.text'].startsWith('ACTION:')) {
             $('div#message_thread').append(`
             <div class="row" style="margin-left: 0; margin-right: 0">
                 <div class="alert alert-info" role="alert" style="float: left; display:table">
-                    <span style="font-size: 16px"><b>` + agent_id + `</b>: ` + message['text'] + `</span>
+                    <span style="font-size: 16px"><b>` + agent_id + `</b>: ` + message['utils.text'] + `</span>
                 </div>
             </div>
             `);

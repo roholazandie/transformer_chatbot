@@ -2,7 +2,7 @@ import re
 import os
 import json
 import random
-from collections import namedtuple, Counter
+from collections import Counter
 
 import torch
 import numpy as np
@@ -162,8 +162,8 @@ def load_openai_weights(model, directory, n_special_tokens=0):
 
 if __name__ == "__main__":
     from transformer_module import TransformerModule
-    from config import get_model_config, get_trainer_config
-    from model.text import BPEVocab
+    from model.config import get_model_config, get_trainer_config
+    from utils.text import BPEVocab
 
     model_config = get_model_config()
     trainer_config = get_trainer_config()

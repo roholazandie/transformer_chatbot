@@ -5,7 +5,7 @@ import re
 from tqdm import tqdm
 import difflib
 
-from sentiment import get_mood
+from utils.sentiment import get_mood
 
 
 DIALOG_SIZE = 3

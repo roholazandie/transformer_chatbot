@@ -214,9 +214,9 @@ simpleheat.prototype = {
 						draw_gradient(attn_grid, attn_grid_sz);
 				}
 				if (agent_id === 'WORLD_MAP') {
-            landmarks = message['text']['landmarks'];
-            target = message['text']['target'];
-            boundaries = message['text']['boundaries'];
+            landmarks = message['utils.text']['landmarks'];
+            target = message['utils.text']['target'];
+            boundaries = message['utils.text']['boundaries'];
             count_landmarks(landmarks);
             draw_grid(true);
         }
@@ -238,20 +238,20 @@ simpleheat.prototype = {
             $('#inactive').text('Unfortunately, you didn\'t guide the Tourist to the target location.');
             $('#inactive').css('color', '#fff');
             $('#right-bottom-pane').css('background-color', '#ff3b30');
-            draw_target2(message['text'], '#ff3b30');
-        } else if (agent_id === 'Tourist' && !message['text'].startsWith('ACTION:')) {
+            draw_target2(message['utils.text'], '#ff3b30');
+        } else if (agent_id === 'Tourist' && !message['utils.text'].startsWith('ACTION:')) {
             $('div#message_thread').append(`
                 <div class="row" style="margin-left: 0; margin-right: 0">
                     <div class="alert alert-warning" role="alert" style="float: left; display:table">
-                        <span style="font-size: 16px"><b>` + agent_id + `</b>: ` + message['text'] + `</span>
+                        <span style="font-size: 16px"><b>` + agent_id + `</b>: ` + message['utils.text'] + `</span>
                     </div>
                 </div>
             `);
-        } else if (!agent_id.startsWith('WORLD') && !message['text'].startsWith('ACTION:') && !message['episode_done']) {
+        } else if (!agent_id.startsWith('WORLD') && !message['utils.text'].startsWith('ACTION:') && !message['episode_done']) {
             $('div#message_thread').append(`
                 <div class="row" style="margin-left: 0; margin-right: 0">
                     <div class="alert alert-info" role="alert" style="float: right; display:table">
-                        <span style="font-size: 16px"><b>` + agent_id + `</b>: ` + message['text'] + `</span>
+                        <span style="font-size: 16px"><b>` + agent_id + `</b>: ` + message['utils.text'] + `</span>
                     </div>
                 </div>
             `);

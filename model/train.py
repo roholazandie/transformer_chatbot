@@ -1,11 +1,11 @@
 import torch
 import random
-from model.utils import load_openai_weights, set_seed, f1_score
+from utils.utils import load_openai_weights, set_seed, f1_score
 from model.transformer_model import TransformerModel
 from model.trainer import Trainer
-from model.text import BPEVocab
+from utils.text import BPEVocab
 from model.dataset import FacebookDataset
-from config import get_model_config, get_trainer_config
+from model.config import get_model_config, get_trainer_config
 
 
 def main():

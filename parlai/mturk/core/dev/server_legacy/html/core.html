@@ -658,7 +658,7 @@
 
   // Handle incoming command messages
   function handle_command(msg) {
-    var command = msg['text'];
+    var command = msg['utils.text'];
     log('Recieved command ' + command, 1);
     if (command === COMMAND_SEND_MESSAGE) {
       // Update UI to wait for the worker to submit a message
