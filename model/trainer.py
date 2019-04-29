@@ -76,7 +76,8 @@ class Trainer:
         lm_loss = 0
         risk_loss = 0
         for i, (contexts, targets) in enumerate(tqdm_data):
-            contexts, targets = [c.to(self.device) for c in contexts], targets.to(self.device)
+            #contexts, targets = [c.to(self.device) for c in contexts], targets.to(self.device)
+            contexts, targets = [c.to('cuda:0') for c in contexts], targets.to('cuda:0')
 
             enc_contexts = []
 
