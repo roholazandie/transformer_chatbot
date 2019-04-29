@@ -5,5 +5,6 @@ checkpoints/*
 parameters/*
 ParlAI/*
 datasets/*
+config.py
 model/parameters/*
 env/*

@@ -6,7 +6,7 @@ from nltk.corpus import wordnet
 import nltk
 import difflib
 import random
-from .retrieval import RetrievalBot
+from retrieval import RetrievalBot
 import re
 import numpy as np
 from itertools import combinations

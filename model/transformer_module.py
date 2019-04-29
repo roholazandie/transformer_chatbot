@@ -130,14 +130,14 @@ class TransformerBlock(nn.Module):
     def forward(self, x, padding_mask, *contexts):
         '''contexts = [(context1, padding_mask1), ...]'''
         #todo rooh: the contribution of the alg lies here
-        inputs = (x, padding_mask) + contexts
+        inputs = (x, padding_mask) + contexts #todo rooh: the context here is h not the context defined in data loader
 
         full_attn = 0
         n_attn = len(inputs) // 2
         for i in range(0, len(inputs), 2):
             c, m = inputs[i], inputs[i+1].byte()
             a = self.attn(x, c, c, m)
-            full_attn += (a / n_attn) # todo rooh: looks like the way it calculates the mean is wrong.
+            full_attn += (a / n_attn)
 
         full_attn = self.dropout(full_attn)
         x = self.attn_norm(x + full_attn)

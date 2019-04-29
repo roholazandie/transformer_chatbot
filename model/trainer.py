@@ -4,9 +4,9 @@ import torch.nn.functional as F
 import random
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from .utils import pad_sequence
-from .optim import Adam, NoamOpt
-from .loss import LabelSmoothingLoss
+from utils import pad_sequence
+from optim import Adam, NoamOpt
+from loss import LabelSmoothingLoss
 
 
 class Trainer:
