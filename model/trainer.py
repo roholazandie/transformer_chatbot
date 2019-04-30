@@ -192,9 +192,8 @@ class Trainer:
 
         first_batch = next(iter(self.train_dataloader))
 
-
+        data = [([first_batch[0][0].clone(), first_batch[0][1].clone()], first_batch[1].clone()) for _ in range(50)]
         for epoch in experiment.epoch_loop(epochs):
-            data = [([first_batch[0][0].clone(), first_batch[0][1].clone()], first_batch[1].clone()) for _ in range(2)]
             self._eval_train(epoch, data, risk_func, experiment)
 
             for func in after_epoch_funcs:
