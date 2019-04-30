@@ -202,7 +202,7 @@ class Trainer:
 
         first_batch = next(iter(self.train_dataloader))
         for epoch in range(epochs):
-            self._eval_train(epoch, [first_batch]*50,risk_func)
+            self._eval_train(epoch, [first_batch]*50, risk_func)
 
             for func in after_epoch_funcs:
                 func(epoch)

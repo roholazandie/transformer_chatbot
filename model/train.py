@@ -104,7 +104,8 @@ def main():
         # helpers -----------------------------------------------------
 
     try:
-        model_trainer.train(trainer_config.n_epochs, after_epoch_funcs=[save_func, sample_text_func, test_func],
+        after_epoch_func = []#[save_func, sample_text_func, test_func]
+        model_trainer.train(trainer_config.n_epochs, after_epoch_funcs=after_epoch_func,
                             risk_func=f1_risk)
     except (KeyboardInterrupt, Exception, RuntimeError) as e:
         torch.save(model_trainer.state_dict(), trainer_config.interrupt_checkpoint_path)
