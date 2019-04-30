@@ -15,17 +15,17 @@ class Trainer:
                  n_jobs=0, clip_grad=None, label_smoothing=0, device=torch.device('cuda'),
                  ignore_idxs=[]):
 
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        if torch.cuda.device_count() > 1:
-            print("Let's use ", torch.cuda.device_count(), "GPU's")
-            self.model = nn.DataParallel(model, device_ids=[0, 2])
+        # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # if torch.cuda.device_count() > 1:
+        #     print("Let's use ", torch.cuda.device_count(), "GPU's")
+        #     self.model = nn.DataParallel(model, device_ids=[0, 2])
 
-        self.model = self.model.to(device)
-        self.lm_criterion = nn.CrossEntropyLoss(ignore_index=self.model.module.padding_idx).to(device)
-        self.criterion = LabelSmoothingLoss(n_labels=self.model.module.n_embeddings, smoothing=label_smoothing,
-                                            ignore_index=self.model.module.padding_idx).to(device)
-        base_optimizer = Adam(self.model.module.parameters(), lr=lr, weight_decay=0.01)
-        self.optimizer = NoamOpt(self.model.module.embeddings_size, lr, lr_warmup, base_optimizer)
+        self.model = model.to(device)
+        self.lm_criterion = nn.CrossEntropyLoss(ignore_index=self.model.padding_idx).to(device)
+        self.criterion = LabelSmoothingLoss(n_labels=self.model.n_embeddings, smoothing=label_smoothing,
+                                            ignore_index=self.model.padding_idx).to(device)
+        base_optimizer = Adam(self.model.parameters(), lr=lr, weight_decay=0.01)
+        self.optimizer = NoamOpt(self.model.embeddings_size, lr, lr_warmup, base_optimizer)
 
         self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size // batch_split, shuffle=True,
                                            num_workers=n_jobs, collate_fn=self.collate_func)
@@ -41,11 +41,11 @@ class Trainer:
         self.ignore_idxs = ignore_idxs # for special characters <UNK>, <bos>, ...total=8
 
     def state_dict(self):
-        return {'model': self.model.module.state_dict(),
+        return {'model': self.model.state_dict(),
                 'optimizer': self.optimizer.state_dict()}
 
     def load_state_dict(self, state_dict):
-        self.model.module.load_state_dict(state_dict['model'], strict=False)
+        self.model.load_state_dict(state_dict['model'], strict=False)
         self.optimizer.load_state_dict(state_dict['optimizer'])
 
     def collate_func(self, data):
@@ -55,28 +55,29 @@ class Trainer:
 
         if max(map(len, persona_info)) > 0:
             persona_info = [torch.tensor(d, dtype=torch.long) for d in persona_info]
-            persona_info = pad_sequence(persona_info, batch_first=True, padding_value=self.model.module.padding_idx)
+            persona_info = pad_sequence(persona_info, batch_first=True, padding_value=self.model.padding_idx)
             contexts.append(persona_info)
 
         if max(map(len, h)) > 0:
             h = [torch.tensor(d, dtype=torch.long) for d in h]
-            h = pad_sequence(h, batch_first=True, padding_value=self.model.module.padding_idx)
+            h = pad_sequence(h, batch_first=True, padding_value=self.model.padding_idx)
             contexts.append(h)
 
         y = [torch.tensor(d, dtype=torch.long) for d in y]
-        y = pad_sequence(y, batch_first=True, padding_value=self.model.module.padding_idx)
+        y = pad_sequence(y, batch_first=True, padding_value=self.model.padding_idx)
 
         return contexts, y
 
-    def _eval_train(self, epoch, risk_func=None):
-        self.model.module.train()  # set the model to training mode(this is not training)
+    def _eval_train(self, epoch, data,risk_func=None):
+        self.model.train()  # set the model to training mode(this is not training)
 
         #tqdm.monitor_interval = 0
-        tqdm_data = tqdm(self.train_dataloader, desc='Train (epoch #{})'.format(epoch))
+        #tqdm_data = tqdm(self.train_dataloader, desc='Train (epoch #{})'.format(epoch))
         loss = 0
         lm_loss = 0
         risk_loss = 0
-        for i, (contexts, targets) in enumerate(tqdm_data):
+
+        for i, (contexts, targets) in enumerate(data):
             contexts, targets = [c.to(self.device) for c in contexts], targets.to(self.device)
 
             enc_contexts = []
@@ -84,20 +85,19 @@ class Trainer:
             # lm loss
             batch_lm_loss = torch.tensor(0, dtype=torch.float, device=self.device)
             for context in contexts:
-                enc_context = self.model.module.encode(context.clone())
+                enc_context = self.model.encode(context.clone())
                 enc_contexts.append(enc_context)
 
                 if self.lm_weight > 0:
-                    context_outputs = self.model.module.generate(enc_context[0])  #we select the zero element because it's the real encoding, the enc_context[1] is padding_mask gives presoftmax weights
+                    context_outputs = self.model.generate(enc_context[0])  #we select the zero element because it's the real encoding, the enc_context[1] is padding_mask gives presoftmax weights
                     ignore_mask = torch.stack([context == idx for idx in self.ignore_idxs], dim=-1).any(dim=-1)
-                    context.masked_fill_(ignore_mask, self.model.module.padding_idx) #this line and the previous one removes the special characters
+                    context.masked_fill_(ignore_mask, self.model.padding_idx) #this line and the previous one removes the special characters
                     prevs, nexts = context_outputs[:, :-1, :].contiguous(), context[:, 1:].contiguous()
-                    batch_lm_loss += (
-                                self.lm_criterion(prevs.view(-1, prevs.shape[-1]), nexts.view(-1)) / len(contexts))
+                    batch_lm_loss += (self.lm_criterion(prevs.view(-1, prevs.shape[-1]), nexts.view(-1)) / len(contexts))
 
             # s2s loss
             prevs, nexts = targets[:, :-1].contiguous(), targets[:, 1:].contiguous()
-            outputs = self.model.module.decode(prevs, enc_contexts) # this gives the pre-softmax todo: rooh, write a softmax function in model
+            outputs = self.model.decode(prevs, enc_contexts) # this gives the pre-softmax todo: rooh, write a softmax function in model
             outputs = F.log_softmax(outputs, dim=-1)
             batch_loss = self.criterion(outputs.view(-1, outputs.shape[-1]), nexts.view(-1))
 
@@ -105,9 +105,9 @@ class Trainer:
             batch_risk_loss = torch.tensor(0, dtype=torch.float, device=self.device)
             if risk_func is not None and self.risk_weight > 0:
 
-                beams, beam_lens = self.model.module.beam_search(enc_contexts, return_beams=True)
+                beams, beam_lens = self.model.beam_search(enc_contexts, return_beams=True)
 
-                target_lens = targets.ne(self.model.module.padding_idx).sum(dim=-1)
+                target_lens = targets.ne(self.model.padding_idx).sum(dim=-1)
                 targets = [target[1:length - 1].tolist() for target, length in
                            zip(targets, target_lens)]  # truncate the targets to their real size without paddings
                 batch_risks = []
@@ -119,7 +119,7 @@ class Trainer:
 
                 batch_probas = []
                 for b in range(beams.shape[1]):
-                    logits = self.model.module.decode(beams[:, b, :-1], enc_contexts)
+                    logits = self.model.decode(beams[:, b, :-1], enc_contexts)
                     probas = F.log_softmax(logits, dim=-1)
                     probas = torch.gather(probas, -1, beams[:, b, 1:].unsqueeze(-1)).squeeze(-1)
                     probas = probas.sum(dim=-1) / beam_lens[:, b].float()
@@ -145,11 +145,11 @@ class Trainer:
             loss = (i * loss + batch_loss.item()) / (i + 1)
             risk_loss = (i * risk_loss + batch_risk_loss.item()) / (i + 1)
 
-            tqdm_data.set_postfix({'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss})
+            #tqdm_data.set_postfix({'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss})
             print(str({'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss}))
 
     def _eval_test(self, metric_funcs={}):
-        self.model.module.eval()
+        self.model.eval()
 
         tqdm_data = tqdm(self.test_dataloader, desc='Test')
         loss = 0
@@ -163,25 +163,25 @@ class Trainer:
             # lm loss
             batch_lm_loss = torch.tensor(0, dtype=torch.float, device=self.device)
             for context in contexts:
-                enc_context = self.model.module.encode(context.clone())
+                enc_context = self.model.encode(context.clone())
                 enc_contexts.append(enc_context)
 
                 if self.lm_weight > 0:
-                    context_outputs = self.model.module.generate(enc_context[0])
+                    context_outputs = self.model.generate(enc_context[0])
                     ignore_mask = torch.stack([context == idx for idx in self.ignore_idxs], dim=-1).any(dim=-1)
-                    context.masked_fill_(ignore_mask, self.model.module.padding_idx)
+                    context.masked_fill_(ignore_mask, self.model.padding_idx)
                     prevs, nexts = context_outputs[:, :-1, :].contiguous(), context[:, 1:].contiguous()
                     batch_lm_loss += (
                                 self.lm_criterion(prevs.view(-1, prevs.shape[-1]), nexts.view(-1)) / len(contexts))
 
             # s2s loss
             prevs, nexts = targets[:, :-1].contiguous(), targets[:, 1:].contiguous()
-            outputs = self.model.module.decode(prevs, enc_contexts)
+            outputs = self.model.decode(prevs, enc_contexts)
             outputs = F.log_softmax(outputs, dim=-1)
             batch_loss = self.criterion(outputs.view(-1, outputs.shape[-1]), nexts.view(-1))
             #new compared to eval_train
-            predictions = self.model.module.beam_search(enc_contexts)
-            target_lens = targets.ne(self.model.module.padding_idx).sum(dim=-1)
+            predictions = self.model.beam_search(enc_contexts)
+            target_lens = targets.ne(self.model.padding_idx).sum(dim=-1)
             targets = [t[1:l - 1].tolist() for t, l in
                        zip(targets, target_lens)]  # truncate the targets to their real size without paddings
 
@@ -198,8 +198,11 @@ class Trainer:
             self._eval_test(metric_funcs)
 
     def train(self, epochs, after_epoch_funcs=[], risk_func=None):
+        #sanity check to make sure there is no problem with the model
+
+        first_batch = next(iter(self.train_dataloader))
         for epoch in range(epochs):
-            self._eval_train(epoch, risk_func)
+            self._eval_train(epoch, [first_batch]*50,risk_func)
 
             for func in after_epoch_funcs:
                 func(epoch)
