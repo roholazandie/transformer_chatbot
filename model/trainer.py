@@ -10,7 +10,7 @@ from model.loss import LabelSmoothingLoss
 
 
 class Trainer:
-    def __init__(self, model, train_dataset, test_dataset=None, batch_size=8,
+    def __init__(self, model, train_dataloader, test_dataloader=None, optimizer=None, batch_size=8,
                  batch_split=1, lm_weight=0.5, risk_weight=0, lr=6.25e-5, lr_warmup=2000,
                  n_jobs=0, clip_grad=None, label_smoothing=0, device=torch.device('cuda'),
                  ignore_idxs=[]):
@@ -24,14 +24,19 @@ class Trainer:
         self.lm_criterion = nn.CrossEntropyLoss(ignore_index=self.model.padding_idx).to(device)
         self.criterion = LabelSmoothingLoss(n_labels=self.model.n_embeddings, smoothing=label_smoothing,
                                             ignore_index=self.model.padding_idx).to(device)
-        base_optimizer = Adam(self.model.parameters(), lr=lr, weight_decay=0.01)
-        self.optimizer = NoamOpt(self.model.embeddings_size, lr, lr_warmup, base_optimizer)
+        # base_optimizer = Adam(self.model.parameters(), lr=lr, weight_decay=0.01)
+        # self.optimizer = NoamOpt(self.model.embeddings_size, lr, lr_warmup, base_optimizer)
 
-        self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size // batch_split, shuffle=True,
-                                           num_workers=n_jobs, collate_fn=self.collate_func)
-        if test_dataset is not None:
-            self.test_dataloader = DataLoader(test_dataset, batch_size=batch_size // batch_split, shuffle=False,
-                                              num_workers=n_jobs, collate_fn=self.collate_func)
+        # self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size // batch_split, shuffle=True,
+        #                                    num_workers=n_jobs, collate_fn=self.collate_func)
+        # if test_dataset is not None:
+        #     self.test_dataloader = DataLoader(test_dataset, batch_size=batch_size // batch_split, shuffle=False,
+        #                                       num_workers=n_jobs, collate_fn=self.collate_func)
+
+        self.optimizer = optimizer
+        self.train_dataloader = train_dataloader
+        if test_dataloader is not None:
+            self.test_dataloader = test_dataloader
 
         self.batch_split = batch_split
         self.lm_weight = lm_weight
@@ -48,27 +53,7 @@ class Trainer:
         self.model.load_state_dict(state_dict['model'], strict=False)
         self.optimizer.load_state_dict(state_dict['optimizer'])
 
-    def collate_func(self, data):
-        persona_info, h, y = zip(*data)
-
-        contexts = []
-
-        if max(map(len, persona_info)) > 0:
-            persona_info = [torch.tensor(d, dtype=torch.long) for d in persona_info]
-            persona_info = pad_sequence(persona_info, batch_first=True, padding_value=self.model.padding_idx)
-            contexts.append(persona_info)
-
-        if max(map(len, h)) > 0:
-            h = [torch.tensor(d, dtype=torch.long) for d in h]
-            h = pad_sequence(h, batch_first=True, padding_value=self.model.padding_idx)
-            contexts.append(h)
-
-        y = [torch.tensor(d, dtype=torch.long) for d in y]
-        y = pad_sequence(y, batch_first=True, padding_value=self.model.padding_idx)
-
-        return contexts, y
-
-    def _eval_train(self, epoch, data,risk_func=None):
+    def _eval_train(self, epoch, data, risk_func=None, experiment=None):
         self.model.train()  # set the model to training mode(this is not training)
 
         #tqdm.monitor_interval = 0
@@ -77,7 +62,7 @@ class Trainer:
         lm_loss = 0
         risk_loss = 0
 
-        for i, (contexts, targets) in enumerate(data):
+        for i, (contexts, targets) in experiment.batch_loop(iterable=data):
             contexts, targets = [c.to(self.device) for c in contexts], targets.to(self.device)
 
             enc_contexts = []
@@ -91,7 +76,7 @@ class Trainer:
                 if self.lm_weight > 0:
                     context_outputs = self.model.generate(enc_context[0])  #we select the zero element because it's the real encoding, the enc_context[1] is padding_mask gives presoftmax weights
                     ignore_mask = torch.stack([context == idx for idx in self.ignore_idxs], dim=-1).any(dim=-1)
-                    context.masked_fill_(ignore_mask, self.model.padding_idx) #this line and the previous one removes the special characters
+                    context = context.masked_fill_(ignore_mask, self.model.padding_idx) #this line and the previous one removes the special characters
                     prevs, nexts = context_outputs[:, :-1, :].contiguous(), context[:, 1:].contiguous()
                     batch_lm_loss += (self.lm_criterion(prevs.view(-1, prevs.shape[-1]), nexts.view(-1)) / len(contexts))
 
@@ -148,6 +133,11 @@ class Trainer:
             #tqdm_data.set_postfix({'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss})
             print(str({'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss}))
 
+            if i % 1 == 0:
+                experiment.add_metric("Loss", loss)
+                experiment.add_metric("LM_Loss", lm_loss)
+
+
     def _eval_test(self, metric_funcs={}):
         self.model.eval()
 
@@ -197,12 +187,15 @@ class Trainer:
         if hasattr(self, 'test_dataloader'):
             self._eval_test(metric_funcs)
 
-    def train(self, epochs, after_epoch_funcs=[], risk_func=None):
+    def train(self, epochs, after_epoch_funcs=[], risk_func=None, experiment=None):
         #sanity check to make sure there is no problem with the model
 
         first_batch = next(iter(self.train_dataloader))
-        for epoch in range(epochs):
-            self._eval_train(epoch, [first_batch]*50, risk_func)
+
+
+        for epoch in experiment.epoch_loop(epochs):
+            data = [([first_batch[0][0].clone(), first_batch[0][1].clone()], first_batch[1].clone()) for _ in range(2)]
+            self._eval_train(epoch, data, risk_func, experiment)
 
             for func in after_epoch_funcs:
                 func(epoch)

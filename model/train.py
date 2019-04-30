@@ -6,6 +6,46 @@ from model.trainer import Trainer
 from utils.text import BPEVocab
 from model.dataset import FacebookDataset
 from model.config import get_model_config, get_trainer_config
+from torch.utils.data import DataLoader
+from utils.utils import pad_sequence
+from model.optim import Adam, NoamOpt
+import missinglink
+
+missinglink_project = missinglink.PyTorchProject()
+
+
+def collate_func(data): #todo: need refactor, should all go to dataset
+    padding_idx = 0 #todo: need a refactor it should be self.padding_idx
+
+    persona_info, h, y = zip(*data)
+
+    contexts = []
+
+    if max(map(len, persona_info)) > 0:
+        persona_info = [torch.tensor(d, dtype=torch.long) for d in persona_info]
+        persona_info = pad_sequence(persona_info, batch_first=True, padding_value=padding_idx)
+        contexts.append(persona_info)
+
+    if max(map(len, h)) > 0:
+        h = [torch.tensor(d, dtype=torch.long) for d in h]
+        h = pad_sequence(h, batch_first=True, padding_value=padding_idx)
+        contexts.append(h)
+
+    y = [torch.tensor(d, dtype=torch.long) for d in y]
+    y = pad_sequence(y, batch_first=True, padding_value=padding_idx)
+
+    return contexts, y
+
+
+def get_train_test_loaders(train_dataset, test_dataset, batch_size, batch_split, n_jobs, collate_func): #todo: need refactor, should all go to dataset
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size // batch_split, shuffle=True,
+                                       num_workers=n_jobs, collate_fn=collate_func)
+    if test_dataset is not None:
+        test_dataloader = DataLoader(test_dataset, batch_size=batch_size // batch_split, shuffle=False,
+                                          num_workers=n_jobs, collate_fn=collate_func)
+
+    return train_dataloader, test_dataloader
+
 
 
 def main():
@@ -47,9 +87,20 @@ def main():
     train_dataset = FacebookDataset(trainer_config.train_datasets, vocab, transformer.n_pos_embeddings - 1)
     test_dataset = FacebookDataset(trainer_config.test_datasets, vocab, transformer.n_pos_embeddings - 1)
 
+    train_loader, test_loader = get_train_test_loaders(train_dataset,
+                                                       test_dataset,
+                                                       batch_size=trainer_config.batch_size,
+                                                       batch_split=trainer_config.batch_split,
+                                                       n_jobs=trainer_config.n_jobs,
+                                                       collate_func=collate_func)
+
+    base_optimizer = Adam(transformer.parameters(), lr=trainer_config.lr, weight_decay=0.01)
+    optimizer = NoamOpt(transformer.embeddings_size, trainer_config.lr, trainer_config.lr_warmup, base_optimizer)
+
     model_trainer = Trainer(transformer,
-                            train_dataset,
-                            test_dataset,
+                            train_loader,
+                            test_loader,
+                            optimizer=optimizer,
                             batch_size=trainer_config.batch_size,
                             batch_split=trainer_config.batch_split,
                             lr=trainer_config.lr,
@@ -102,11 +153,18 @@ def main():
         return [1 - s for s in scores]
 
         # helpers -----------------------------------------------------
-
     try:
-        after_epoch_func = []#[save_func, sample_text_func, test_func]
-        model_trainer.train(trainer_config.n_epochs, after_epoch_funcs=after_epoch_func,
-                            risk_func=f1_risk)
+        with missinglink_project.create_experiment(model=transformer,
+                                                  optimizer=optimizer,
+                                                  train_data_object=train_loader) as experiment:
+            after_epoch_func = []#[save_func, sample_text_func, test_func]
+            model_trainer.train(trainer_config.n_epochs,
+                                after_epoch_funcs=after_epoch_func,
+                                risk_func=f1_risk,
+                                experiment=experiment)
+
+
+
     except (KeyboardInterrupt, Exception, RuntimeError) as e:
         torch.save(model_trainer.state_dict(), trainer_config.interrupt_checkpoint_path)
         raise e
