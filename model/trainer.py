@@ -70,7 +70,7 @@ class Trainer:
             # lm loss
             batch_lm_loss = torch.tensor(0, dtype=torch.float, device=self.device)
             for context in contexts:
-                enc_context = self.model.encode(context.clone())
+                enc_context = self.model.encode(context)
                 enc_contexts.append(enc_context)
 
                 if self.lm_weight > 0:
@@ -122,7 +122,7 @@ class Trainer:
                 if self.clip_grad is not None:
                     for group in self.optimizer.param_groups:
                         nn.utils.clip_grad_norm_(group['params'], self.clip_grad)
-
+                print("step and zero_grad")
                 self.optimizer.step()
                 self.optimizer.zero_grad()
 
@@ -131,7 +131,7 @@ class Trainer:
             risk_loss = (i * risk_loss + batch_risk_loss.item()) / (i + 1)
 
             #tqdm_data.set_postfix({'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss})
-            print(str({'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss}))
+            print(str({'i': str(i), 'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss}))
 
             if i % 1 == 0:
                 experiment.add_metric("Loss", loss)
