@@ -25,13 +25,56 @@ Metrics:
 
 import collections
 import math
-
+from collections import Counter
 import numpy as np
 import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
 
+def f1_score(predictions, targets, average=True):
+    def f1_score_items(pred_items, gold_items):
+        common = Counter(gold_items) & Counter(pred_items)
+        num_same = sum(common.values())
 
+        if num_same == 0:
+            return 0
+
+        precision = num_same / len(pred_items)
+        recall = num_same / len(gold_items)
+        f1 = (2 * precision * recall) / (precision + recall)
+
+        return f1
+
+    scores = [f1_score_items(p, t) for p, t in zip(predictions, targets)]
+
+    if average:
+        return sum(scores) / len(scores)
+
+    return scores
+
+
+def f1_risk(predictions, targets):
+    scores = f1_score(predictions, targets, average=False)
+    return [1 - s for s in scores]
+
+
+def bleu_score(predictions, labels): #todo this is redundant: remove it
+    """Approximate BLEU score computation between labels and predictions.
+
+  An approximate BLEU scoring method since we do not glue word pieces or
+  decode the ids and tokenize the output. By default, we use ngram order of 4
+  and use brevity penalty. Also, this does not have beam search.
+
+  Args:
+    logits: Tensor of size [batch_size, length_logits, vocab_size]
+    labels: Tensor of size [batch-size, length_labels]
+
+  Returns:
+    bleu: int, approx bleu score
+  """
+    #predictions = np.argmax(logits, axis=-1)
+    bleu = compute_bleu(labels, predictions)
+    return bleu
 
 
 def _get_ngrams_with_counter(segment, max_order):

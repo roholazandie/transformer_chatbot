@@ -2,7 +2,6 @@ import re
 import os
 import json
 import random
-from collections import Counter
 
 import torch
 import numpy as np
@@ -61,27 +60,6 @@ def checkpoint_sequential(functions, segments, *inputs):
             inputs = (inputs,)
     return run_function(end + 1, len(functions) - 1, functions)(*inputs)
 
-
-def f1_score(predictions, targets, average=True):
-    def f1_score_items(pred_items, gold_items):
-        common = Counter(gold_items) & Counter(pred_items)
-        num_same = sum(common.values())
-
-        if num_same == 0:
-            return 0
-
-        precision = num_same / len(pred_items)
-        recall = num_same / len(gold_items)
-        f1 = (2 * precision * recall) / (precision + recall)
-
-        return f1
-    
-    scores = [f1_score_items(p, t) for p, t in zip(predictions, targets)]
-
-    if average:
-        return sum(scores) / len(scores)    
-
-    return scores
 
 
 def openai_transformer_config():
@@ -161,7 +139,7 @@ def load_openai_weights(model, directory, n_special_tokens=0):
 
 
 if __name__ == "__main__":
-    from transformer_module import TransformerModule
+    from model.transformer_module import TransformerModule
     from model.config import get_model_config, get_trainer_config
     from utils.text import BPEVocab
 

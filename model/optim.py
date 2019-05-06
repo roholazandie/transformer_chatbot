@@ -125,5 +125,5 @@ class NoamOpt:
     def rate(self, step=None):
         if step is None:
             step = self._step
-            
+        print(step)
         return self.factor * (self.embeddings_size ** (-0.5) * min(step ** (-0.5), step * self.warmup ** (-1.5)))
