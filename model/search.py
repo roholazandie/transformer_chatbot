@@ -1,82 +1,98 @@
-import random
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+import random
 
-from model.transformer_module import TransformerModule
+class SamplingSearch():
+
+    def __init__(self, model):
+        #todo: sampling can be augmented with beam search strategy
+        #todo: below should go inside a loop
+        self.model = model
+
+    def search(self):
+
+        def top_k_top_p_filtering(self, logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
+            """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
+                Args:
+                    logits: logits distribution shape (..., vocabulary size)
+                    top_k >0: keep only top k tokens with highest probability (top-k filtering).
+                    top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
+            """
+            top_k = min(top_k, logits.size(-1))  # Safety check
+            if top_k > 0:
+                # Remove all tokens with a probability less than the last token of the top-k
+                indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
+                logits[indices_to_remove] = filter_value
+
+            if top_p > 0.0:
+                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+
+                # Remove tokens with cumulative probability above the threshold
+                sorted_indices_to_remove = cumulative_probs > top_p
+                # Shift the indices to the right to keep also the first token above the threshold
+                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                sorted_indices_to_remove[..., 0] = 0
+
+                indices_to_remove = sorted_indices[sorted_indices_to_remove]
+                logits[indices_to_remove] = filter_value
+            return logits
+
+        # Here is how to use this function for top-p sampling
+        temperature = 1.0
+        top_k = 0
+        top_p = 0.9
+
+        # Get logits with a forward pass in our model (input is pre-defined)
+        logits = self.model(input)
+
+        # Keep only the last token predictions, apply a temperature coefficient and filter
+        logits = logits[..., -1, :] / temperature
+        filtered_logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
+
+        # Sample from the filtered distribution
+        probabilities = F.softmax(filtered_logits, dim=-1)
+        next_token = torch.multinomial(probabilities, 1)
 
 
-class TransformerModel(nn.Module):
-    def __init__(self, n_layers, n_embeddings, n_pos_embeddings, embeddings_size, 
-                 padding_idx, n_heads, dropout, embed_dropout, attn_dropout, ff_dropout,
-                 bos_id, eos_id, max_seq_len=256, beam_size=5, sample=False,
-                 length_penalty=0.8, annealing_topk=None, annealing=0, 
-                 diversity_coef=0, diversity_groups=1, n_segments=None):
+class BeamSearch():
 
-        super(TransformerModel, self).__init__()
-
-        self.padding_idx = padding_idx
-        self.n_embeddings = n_embeddings
-        self.n_pos_embeddings = n_pos_embeddings
-        self.embeddings_size = embeddings_size
-
-        self.bos_id = bos_id
-        self.eos_id = eos_id
-
-        self.max_seq_len = max_seq_len
+    def __init__(self, model,
+                 beam_size,
+                 diversity_groups,
+                 length_penalty_coef,
+                 max_seq_len,
+                 diversity_coef,
+                 sample,
+                 annealing,
+                 annealing_topk):
+        self.model = model
         self.beam_size = beam_size
+        self.diversity_groups = diversity_groups
+        self.n_embeddings = model.n_embeddings
+        self.length_penalty_coef = length_penalty_coef
+        self.diversity_coef = diversity_coef
+        self.max_seq_len = max_seq_len
         self.sample = sample
-        self.length_penalty_coef = length_penalty
         self.annealing = annealing
         self.annealing_topk = annealing_topk
-        self.diversity_coef = diversity_coef
-        self.diversity_groups = diversity_groups
-
-        self.transformer_module = TransformerModule(n_layers, n_embeddings, n_pos_embeddings, embeddings_size, 
-                                                    padding_idx, n_heads, dropout, embed_dropout, attn_dropout,
-                                                    ff_dropout, n_segments)
-        self.pre_softmax = nn.Linear(embeddings_size, n_embeddings, bias=False)
-        self.pre_softmax.weight = self.transformer_module.embeddings.weight
-
-    def forward(self, x, contexts=[]):
-        enc_contexts = [self.encode(c) for c in contexts]
-        return self.decode(x, enc_contexts)
-
-    def encode(self, x):
-        return self.transformer_module(x)
-
-    def generate(self, enc_x):
-        return self.pre_softmax(enc_x)
-
-    def decode(self, x, enc_contexts=[]):
-        x, _ = self.transformer_module(x, enc_contexts)
-        return self.generate(x)
-
-    def predict(self, contexts=[]):
-        enc_contexts = [self.encode(c) for c in contexts]
-        prediction = self.beam_search(enc_contexts)
-
-        return prediction
 
     def _length_penalty(self, sequence_lengths):
         """https://arxiv.org/abs/1609.08144"""
         return (5 + sequence_lengths) ** self.length_penalty_coef / (5 + 1) ** self.length_penalty_coef
 
 
-    def search(self):
-        pass
-        #todo: add search here
-
-    def beam_search(self, enc_contexts=[], return_beams=False):
+    def search(self, enc_contexts=[], return_beams=True):
         with torch.no_grad():
             if len(enc_contexts) == 0:
                 return []
 
             batch_size = enc_contexts[0][0].shape[0]
-            device = next(self.parameters()).device
+            device = next(self.model.parameters()).device
 
-            prevs = torch.full((batch_size * self.beam_size, 1), fill_value=self.bos_id, dtype=torch.long, device=device)
-            
+            prevs = torch.full((batch_size * self.beam_size, 1), fill_value=self.model.bos_id, dtype=torch.long,
+                               device=device)
+
             beam_scores = torch.zeros(batch_size, self.beam_size, device=device)
             beam_lens = torch.ones(batch_size, self.beam_size, dtype=torch.long, device=device)
             is_end = torch.zeros(batch_size, self.beam_size, dtype=torch.uint8, device=device)
@@ -88,15 +104,15 @@ class TransformerModel(nn.Module):
                 p = p.unsqueeze(1).repeat(1, self.beam_size, 1)
                 p = p.view(-1, p.shape[2])
                 beam_enc_contexts.append((c, p))
-            
+
             current_sample_prob = 1
             group_size = self.beam_size // self.diversity_groups
             diversity_penalty = torch.zeros((batch_size, self.n_embeddings), device=device)
 
             for i in range(self.max_seq_len):
-                outputs, _ = self.transformer_module(prevs, beam_enc_contexts)
+                outputs, _ = self.model.transformer_module(prevs, beam_enc_contexts)
 
-                logits = self.generate(outputs[:, -1, :])
+                logits = self.model.generate(outputs[:, -1, :])
                 log_probs = F.log_softmax(logits, dim=-1)
                 log_probs = log_probs.view(batch_size, self.beam_size, -1)
 
@@ -132,19 +148,20 @@ class TransformerModel(nn.Module):
                                 g_idxs = torch.multinomial(beam_probas, group_size)
                         else:
                             _, g_idxs = g_beam_scores.topk(group_size, dim=-1)
-                        
+
                         g_scores = torch.gather(beam_scores[:, g, :, :].view(batch_size, -1), 1, g_idxs)
                         g_idxs += g * group_size * self.n_embeddings
 
                         all_scores.append(g_scores)
                         all_idxs.append(g_idxs)
 
-                        diversity_penalty.scatter_add_(1, torch.fmod(g_idxs, self.n_embeddings), torch.ones((batch_size, group_size), device=device))
-                     
+                        diversity_penalty.scatter_add_(1, torch.fmod(g_idxs, self.n_embeddings),
+                                                       torch.ones((batch_size, group_size), device=device))
+
                     diversity_penalty.fill_(0)
                     penalty = penalty.view(batch_size, -1)
                     beam_scores = torch.cat(all_scores, dim=-1)
-                    idxs = torch.cat(all_idxs, dim=-1) 
+                    idxs = torch.cat(all_idxs, dim=-1)
 
                     beam_idxs = (idxs.float() / self.n_embeddings).long()
 
@@ -153,9 +170,9 @@ class TransformerModel(nn.Module):
                 is_end = torch.gather(is_end, 1, beam_idxs)
                 beam_lens = torch.gather(beam_lens, 1, beam_idxs)
 
-                sym_idxs[is_end] = self.padding_idx
+                sym_idxs[is_end] = self.model.padding_idx
                 beam_lens[~is_end] += 1
-                is_end[sym_idxs == self.eos_id] = 1
+                is_end[sym_idxs == self.model.eos_id] = 1
 
                 sym_idxs = sym_idxs.view(batch_size * self.beam_size, 1)
                 prevs = prevs.view(batch_size, self.beam_size, -1)
@@ -165,7 +182,7 @@ class TransformerModel(nn.Module):
 
                 if all(is_end.view(-1)):
                     break
-                
+
                 beam_scores *= penalty
                 current_sample_prob *= self.annealing
 
@@ -173,17 +190,17 @@ class TransformerModel(nn.Module):
             result = prevs.view(batch_size, self.beam_size, -1)
 
             if return_beams:
-                 return result, beam_lens
+                return result, beam_lens
 
             if self.sample:
                 probs = F.softmax(beam_scores, dim=-1)
                 bests = torch.multinomial(probs, 1).view(-1)
             else:
                 bests = beam_scores.argmax(dim=-1)
-            
+
             for i in range(batch_size):
                 best_len = beam_lens[i, bests[i]]
-                best_seq = result[i, bests[i], 1:best_len-1]
+                best_seq = result[i, bests[i], 1:best_len - 1]
                 predicts.append(best_seq.tolist())
-                
+
         return predicts
