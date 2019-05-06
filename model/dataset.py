@@ -2,6 +2,7 @@ import random
 import torch
 from torch.utils.data import Dataset, DataLoader
 from utils.text import BPEVocab
+from utils.utils import pad_sequence
 
 
 class FacebookDataset(Dataset):
@@ -90,8 +91,7 @@ class FacebookDataset(Dataset):
                 ids = [self.vocab.talker1_bos_id] + ids + [self.vocab.talker1_eos_id]
             else:
                 ids = [self.vocab.talker2_bos_id] + ids + [self.vocab.talker2_eos_id]
-            h.extend(
-                ids)  # todo rooh: if h is a list of lists then collate_func has a meaning, currently h is one list of all dialogs together
+            h.extend(ids)  # todo rooh: if h is a list of lists then collate_func has a meaning, currently h is one list of all dialogs together
         h = h[-self.max_lengths:]
 
         y = [self.vocab.bos_id] + dialog[dialog_end - 1] + [self.vocab.eos_id]

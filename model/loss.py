@@ -88,49 +88,82 @@ class LabelSmoothingLoss2(nn.Module):
 
 class RiskLoss(nn.Module):
 
-    def __init__(self):
+    def __init__(self, risk_func, model, device):
         super().__init__()
+        self.risk_func = risk_func
+        self.model = model
+        self.device = device
+
+    def forward(self, enc_contexts, targets):
+        beams, beam_lengths = self.model.beam_search(enc_contexts, return_beams=True)
+
+        target_lens = targets.ne(self.model.padding_idx).sum(dim=-1)
+        targets = [target[1:length - 1].tolist() for target, length in
+                   zip(targets, target_lens)]  # truncate the targets to their real size without paddings
+
+        beam_risks = []
+        num_beams = beams.shape[1]
+        for b in range(num_beams):
+            predictions = [beam[1:l - 1].tolist() for beam, l in zip(beams[:, b, :], beam_lengths[:, b])]
+            risks = torch.tensor(self.risk_func(predictions, targets), dtype=torch.float, device=self.device)
+            beam_risks.append(risks)
+        beam_risks = torch.stack(beam_risks, dim=-1)
+
+        beam_probs = []
+        for b in range(num_beams):
+            logits = self.model.decode(beams[:, b, :-1], enc_contexts)
+            logprobas = F.log_softmax(logits, dim=-1)
+            logprobas = torch.gather(logprobas, -1, beams[:, b, 1:].unsqueeze(-1)).squeeze(-1) #select only beams from logprobs
+            logprobas = logprobas.sum(dim=-1) / beam_lengths[:, b].float() #average over length, length normalization based on https://arxiv.org/pdf/1808.10006.pdf
+            probas = logprobas.exp()
+            beam_probs.append(probas)
+        beam_probs = torch.stack(beam_probs, dim=-1)
+        beam_probs = F.softmax(beam_probs, dim=-1)
+
+        batch_risk_loss = torch.mean((beam_risks * beam_probs).sum(dim=-1))
+
+        return batch_risk_loss
 
 
-    def forward(self, net_output, model, sample):
-        """Compute the sequence-level loss for the given hypotheses.
-
-        Returns a tuple with three elements:
-        1) the loss, as a Variable
-        2) the sample size, which is used as the denominator for the gradient
-        3) logging outputs to display while training
-        """
-        ######################risk on classic_seq branch ########################
-        scores = self.get_hypothesis_scores(net_output, sample)
-        lengths = self.get_hypothesis_lengths(net_output, sample)
-        avg_scores = scores.sum(2) / lengths  # average over length
-        probs = F.softmax(avg_scores.exp_())
-        loss = (probs * sample['cost'].type_as(probs)).sum()  # average over batch
-        sample_size = net_output.size(0)  # bsz
-        logging_output = {
-            'loss': loss.data[0],
-            'sample_size': sample_size,
-            'sum_cost': sample['cost'].sum(),
-            'num_cost': sample['cost'].numel(),
-        }
-        return loss, sample_size, logging_output
-        ####################Cross entropy on master branch#############################
-        net_output = model(**sample['net_input'])
-        loss, _ = self.compute_loss(model, net_output, sample, reduce=reduce)
-        sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
-        logging_output = {
-            'loss': utils.item(loss.data) if reduce else loss.data,
-            'ntokens': sample['ntokens'],
-            'nsentences': sample['target'].size(0),
-            'sample_size': sample_size,
-        }
-        return loss, sample_size, logging_output
-
-
-        def compute_loss(self, model, net_output, sample, reduce=True):
-            lprobs = model.get_normalized_probs(net_output, log_probs=True)
-            lprobs = lprobs.view(-1, lprobs.size(-1))
-            target = model.get_targets(sample, net_output).view(-1)
-            loss = F.nll_loss(lprobs, target, size_average=False, ignore_index=self.padding_idx,
-                              reduce=reduce)
-            return loss, loss
+    # def forward(self, net_output, model, sample):
+    #     """Compute the sequence-level loss for the given hypotheses.
+    #
+    #     Returns a tuple with three elements:
+    #     1) the loss, as a Variable
+    #     2) the sample size, which is used as the denominator for the gradient
+    #     3) logging outputs to display while training
+    #     """
+    #     ######################risk on classic_seq branch ########################
+    #     scores = self.get_hypothesis_scores(net_output, sample) #score are logprobs here
+    #     lengths = self.get_hypothesis_lengths(net_output, sample)
+    #     avg_scores = scores.sum(2) / lengths  # average over length
+    #     probs = F.softmax(avg_scores.exp_()) #exponentionation makes them probs
+    #     loss = (probs * sample['cost'].type_as(probs)).sum()  # average over batch
+    #     sample_size = net_output.size(0)  # bsz
+    #     logging_output = {
+    #         'loss': loss.data[0],
+    #         'sample_size': sample_size,
+    #         'sum_cost': sample['cost'].sum(),
+    #         'num_cost': sample['cost'].numel(),
+    #     }
+    #     return loss, sample_size, logging_output
+    #     ####################Cross entropy on master branch#############################
+    #     net_output = model(**sample['net_input'])
+    #     loss, _ = self.compute_loss(model, net_output, sample, reduce=reduce)
+    #     sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
+    #     logging_output = {
+    #         'loss': utils.item(loss.data) if reduce else loss.data,
+    #         'ntokens': sample['ntokens'],
+    #         'nsentences': sample['target'].size(0),
+    #         'sample_size': sample_size,
+    #     }
+    #     return loss, sample_size, logging_output
+    #
+    #
+    #     def compute_loss(self, model, net_output, sample, reduce=True):
+    #         lprobs = model.get_normalized_probs(net_output, log_probs=True)
+    #         lprobs = lprobs.view(-1, lprobs.size(-1))
+    #         target = model.get_targets(sample, net_output).view(-1)
+    #         loss = F.nll_loss(lprobs, target, size_average=False, ignore_index=self.padding_idx,
+    #                           reduce=reduce)
+    #         return loss, loss

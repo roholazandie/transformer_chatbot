@@ -324,7 +324,7 @@ def _f_lcs(llcs, m, n):
 
 if __name__ == "__main__":
     reference_corpus = [['this', 'is', 'a', 'test'], ['this', 'is' 'test']]
-    translation_corpus = [['this', 'is', 'a', 'test']]
+    translation_corpus = [['this', 'is', 'a', 'small', 'test']]
 
     bleu = compute_bleu(reference_corpus, translation_corpus)
     print(bleu)
@@ -332,8 +332,9 @@ if __name__ == "__main__":
 
     # two references for one document
     from nltk.translate.bleu_score import corpus_bleu
-
+    from nltk.translate.bleu_score import SmoothingFunction
+    smooth_func = SmoothingFunction().method3 #NIST geometric sequence smoothing
     references = [[['this', 'is', 'a', 'test'], ['this', 'is' 'test']]]
-    candidates = [['this', 'is', 'a', 'test']]
-    score = corpus_bleu(references, candidates)
+    candidates = [['this', 'is', 'a', 'small', 'test']]
+    score = corpus_bleu(references, candidates, smoothing_function=smooth_func)
     print(score)

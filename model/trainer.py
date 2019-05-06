@@ -8,7 +8,7 @@ from utils.metrics import f1_score, bleu_score
 from utils.text import BPEVocab
 from utils.utils import pad_sequence
 from model.optim import Adam, NoamOpt
-from model.loss import LabelSmoothingLoss
+from model.loss import LabelSmoothingLoss, RiskLoss
 
 
 class Trainer:
@@ -45,7 +45,7 @@ class Trainer:
         self.risk_weight = risk_weight
         self.clip_grad = clip_grad
         self.device = device
-        self.ignore_idxs = vocab.ignore_idxs # for special characters <UNK>, <bos>, ...total=8
+        self.ignore_idxs = vocab.special_tokens_ids # for special characters <UNK>, <bos>, ...total=8
         self.vocab = vocab
         self.test_period = test_period
         self.last_checkpoint_path = last_checkpoint_path
@@ -94,31 +94,32 @@ class Trainer:
             # risk loss
             batch_risk_loss = torch.tensor(0, dtype=torch.float, device=self.device)
             if risk_func is not None and self.risk_weight > 0:
-
-                beams, beam_lens = self.model.beam_search(enc_contexts, return_beams=True)
-
-                target_lens = targets.ne(self.model.padding_idx).sum(dim=-1)
-                targets = [target[1:length - 1].tolist() for target, length in
-                           zip(targets, target_lens)]  # truncate the targets to their real size without paddings
-                batch_risks = [] #this is not batch! it's over beams
-                for b in range(beams.shape[1]):#beams.shape[1] is beam size
-                    predictions = [beam[1:l - 1].tolist() for beam, l in zip(beams[:, b, :], beam_lens[:, b])]
-                    #predictions = [b[1:l - 1].tolist() for b, l in zip(beams[:, b, :], beam_lens[:, b])]
-                    risks = torch.tensor(risk_func(predictions, targets), dtype=torch.float, device=self.device)
-                    batch_risks.append(risks)
-                batch_risks = torch.stack(batch_risks, dim=-1)
-
-                batch_probas = [] #this is not batch! it's over beams
-                for b in range(beams.shape[1]):
-                    logits = self.model.decode(beams[:, b, :-1], enc_contexts)
-                    probas = F.log_softmax(logits, dim=-1)
-                    probas = torch.gather(probas, -1, beams[:, b, 1:].unsqueeze(-1)).squeeze(-1)
-                    probas = probas.sum(dim=-1) / beam_lens[:, b].float()
-                    batch_probas.append(probas)
-                batch_probas = torch.stack(batch_probas, dim=-1)
-                batch_probas = F.softmax(batch_probas, dim=-1)
-
-                batch_risk_loss = torch.mean((batch_risks * batch_probas).sum(dim=-1))
+                risk_criterion = RiskLoss(risk_func, self.model, self.device)
+                batch_risk_loss = risk_criterion(enc_contexts, targets)
+                # beams, beam_lens = self.model.beam_search(enc_contexts, return_beams=True)
+                #
+                # target_lens = targets.ne(self.model.padding_idx).sum(dim=-1)
+                # targets = [target[1:length - 1].tolist() for target, length in
+                #            zip(targets, target_lens)]  # truncate the targets to their real size without paddings
+                # batch_risks = [] #this is not batch! it's over beams
+                # for b in range(beams.shape[1]):#beams.shape[1] is beam size
+                #     predictions = [beam[1:l - 1].tolist() for beam, l in zip(beams[:, b, :], beam_lens[:, b])]
+                #     #predictions = [b[1:l - 1].tolist() for b, l in zip(beams[:, b, :], beam_lens[:, b])]
+                #     risks = torch.tensor(risk_func(predictions, targets), dtype=torch.float, device=self.device)
+                #     batch_risks.append(risks)
+                # batch_risks = torch.stack(batch_risks, dim=-1)
+                #
+                # batch_probas = [] #this is not batch! it's over beams
+                # for b in range(beams.shape[1]):
+                #     logits = self.model.decode(beams[:, b, :-1], enc_contexts)
+                #     probas = F.log_softmax(logits, dim=-1)
+                #     probas = torch.gather(probas, -1, beams[:, b, 1:].unsqueeze(-1)).squeeze(-1)
+                #     probas = probas.sum(dim=-1) / beam_lens[:, b].float()
+                #     batch_probas.append(probas)
+                # batch_probas = torch.stack(batch_probas, dim=-1)
+                # batch_probas = F.softmax(batch_probas, dim=-1)
+                #
+                # batch_risk_loss = torch.mean((batch_risks * batch_probas).sum(dim=-1))
 
             # optimization
             full_loss = (batch_lm_loss * self.lm_weight + self.risk_weight * batch_risk_loss + batch_loss) / self.batch_split
