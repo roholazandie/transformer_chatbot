@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-class LabelSmoothingLoss(nn.Module):
+class LabelSmoothingLoss(nn.Module): #todo should be replaced with below class
     def __init__(self, n_labels, smoothing=0.0, ignore_index=-100, size_average=True):
         super(LabelSmoothingLoss, self).__init__()
         assert 0 <= smoothing <= 1

@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import random
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from utils.metrics import f1_score, bleu_score
+from utils.text import BPEVocab
 from utils.utils import pad_sequence
 from model.optim import Adam, NoamOpt
 from model.loss import LabelSmoothingLoss
@@ -12,8 +14,8 @@ from model.loss import LabelSmoothingLoss
 class Trainer:
     def __init__(self, model, train_dataloader, test_dataloader=None, optimizer=None, batch_size=8,
                  batch_split=1, lm_weight=0.5, risk_weight=0, lr=6.25e-5, lr_warmup=2000,
-                 n_jobs=0, clip_grad=None, label_smoothing=0, device=torch.device('cuda'),
-                 ignore_idxs=[]):
+                 test_period=1, clip_grad=None, label_smoothing=0, last_checkpoint_path=None, device=torch.device('cuda'),
+                 vocab=None):
 
         # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         # if torch.cuda.device_count() > 1:
@@ -43,7 +45,10 @@ class Trainer:
         self.risk_weight = risk_weight
         self.clip_grad = clip_grad
         self.device = device
-        self.ignore_idxs = ignore_idxs # for special characters <UNK>, <bos>, ...total=8
+        self.ignore_idxs = vocab.ignore_idxs # for special characters <UNK>, <bos>, ...total=8
+        self.vocab = vocab
+        self.test_period = test_period
+        self.last_checkpoint_path = last_checkpoint_path
 
     def state_dict(self):
         return {'model': self.model.state_dict(),
@@ -188,8 +193,9 @@ class Trainer:
             self._eval_test(metric_funcs)
 
     def train(self, epochs, after_epoch_funcs=[], risk_func=None, experiment=None):
-        #sanity check to make sure there is no problem with the model
+        #after_epoch_funcs = [self.sample_text_func, self.test_func, self.save_func]
 
+        #sanity check to make sure there is no problem with the model
         first_batch = next(iter(self.train_dataloader))
 
         for epoch in experiment.epoch_loop(epochs):
@@ -198,3 +204,37 @@ class Trainer:
 
             for func in after_epoch_funcs:
                 func(epoch)
+
+    def sample_text_func(self, epoch):
+        sample_size = 5
+        test_dataset = [next(iter(self.test_dataloader)) for _ in range(sample_size)] #todo this should be random
+
+        n_samples = 5
+        samples_idxs = random.sample(range(len(test_dataset)), n_samples)
+        samples = [test_dataset[idx] for idx in samples_idxs]
+        for persona_info, dialog, target in samples:
+            contexts = [torch.tensor([c], dtype=torch.long, device=self.device) for c in [persona_info, dialog]
+                        if len(c) > 0]
+
+            prediction = self.model.predict(contexts)[0]
+
+            persona_info_str = self.vocab.ids2string(persona_info[1:-1])
+            dialog_str = self.vocab.ids2string(dialog)
+            dialog_str = dialog_str.replace(self.vocab.talker1_bos, '\n\t- ').replace(self.vocab.talker2_bos, '\n\t- ')
+            dialog_str = dialog_str.replace(self.vocab.talker1_eos, '').replace(self.vocab.talker2_eos, '')
+            target_str = self.vocab.ids2string(target[1:-1])
+            prediction_str = self.vocab.ids2string(prediction)
+
+            print('\n')
+            print('Persona info:\n\t{}'.format(persona_info_str))
+            print('Dialog:{}'.format(dialog_str))
+            print('Target:\n\t{}'.format(target_str))
+            print('Prediction:\n\t{}'.format(prediction_str))
+
+    def test_func(self, epoch):
+        if (epoch + 1) % self.trainer_config.test_period == 0:
+            metric_funcs = {'f1_score': f1_score, "bleu_score": bleu_score}
+            self.model.test(metric_funcs)
+
+    def save_func(self, epoch):
+        torch.save(self.model.state_dict(), self.last_checkpoint_path)

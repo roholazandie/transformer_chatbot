@@ -1,10 +1,11 @@
 import random
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from utils.text import BPEVocab
 
 
 class FacebookDataset(Dataset):
+
     @staticmethod
     def parse_data(path):
         with open(path, 'r', encoding='utf-8') as file:
@@ -60,6 +61,7 @@ class FacebookDataset(Dataset):
         self.vocab = vocab
         self.max_lengths = max_lengths
         self.min_infos = min_infos
+        self.padding_idx = vocab.pad_id
 
         parsed_data = sum([FacebookDataset.parse_data(path) for path in paths], [])  # concatenation
         self.data = FacebookDataset.make_dataset(parsed_data, vocab, max_lengths)
@@ -76,7 +78,7 @@ class FacebookDataset(Dataset):
             persona_info = random.sample(persona_info, n_info_samples)
             random.shuffle(persona_info)  # not really neccesary the previous line does that
             persona_info = sum(persona_info, [])  # concatenate all the persona infos
-            #todo rooh: persona_info is one list (not a list of lists) so there is no padding in reality
+            # todo rooh: persona_info is one list (not a list of lists) so there is no padding in reality
             persona_info = [self.vocab.info_bos_id] + persona_info[:self.max_lengths - 2] + [self.vocab.info_eos_id]
 
         dialog_begin = 0
@@ -88,13 +90,35 @@ class FacebookDataset(Dataset):
                 ids = [self.vocab.talker1_bos_id] + ids + [self.vocab.talker1_eos_id]
             else:
                 ids = [self.vocab.talker2_bos_id] + ids + [self.vocab.talker2_eos_id]
-            h.extend(ids) #todo rooh: if h is a list of lists then collate_func has a meaning, currently h is one list of all dialogs together
+            h.extend(
+                ids)  # todo rooh: if h is a list of lists then collate_func has a meaning, currently h is one list of all dialogs together
         h = h[-self.max_lengths:]
 
         y = [self.vocab.bos_id] + dialog[dialog_end - 1] + [self.vocab.eos_id]
-        y = y[:self.max_lengths] #todo rooh: currently y is not a list of list
+        y = y[:self.max_lengths]  # todo rooh: currently y is not a list of list
 
         return persona_info, h, y
+
+    def collate_func(self, data):
+        persona_info, h, y = zip(*data)
+
+        contexts = []
+
+        if max(map(len, persona_info)) > 0:
+            persona_info = [torch.tensor(d, dtype=torch.long) for d in persona_info]
+            persona_info = pad_sequence(persona_info, batch_first=True, padding_value=self.padding_idx)
+            contexts.append(persona_info)
+
+        if max(map(len, h)) > 0:
+            h = [torch.tensor(d, dtype=torch.long) for d in h]
+            h = pad_sequence(h, batch_first=True, padding_value=self.padding_idx)
+            contexts.append(h)
+
+        y = [torch.tensor(d, dtype=torch.long) for d in y]
+        y = pad_sequence(y, batch_first=True, padding_value=self.padding_idx)
+
+        return contexts, y
+
 
 
 if __name__ == "__main__":
