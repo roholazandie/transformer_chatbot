@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 
 class LabelSmoothingLoss(nn.Module):
     def __init__(self, n_labels, smoothing=0.0, ignore_index=-100, size_average=True):
@@ -18,6 +18,7 @@ class LabelSmoothingLoss(nn.Module):
                 one_hot[0, ignore_index] = 0
             self.register_buffer('one_hot', one_hot)
         else:
+            #NLLLoss expects log_probs as inputs
             self.criterion = nn.NLLLoss(size_average=size_average, ignore_index=ignore_index) #todo rooh: size_average=size_average to reduction='mean'
         
     def forward(self, log_inputs, targets):
@@ -59,7 +60,7 @@ class LabelSmoothingLoss2(nn.Module):
 
         self.confidence = 1.0 - label_smoothing
 
-    def forward(self, outputs, targets):
+    def forward(self, outputs, targets): #todo here we expect probs as outputs not the log
         """
         outputs (FloatTensor): (batch_size, seq_len, vocabulary_size)
         targets (LongTensor): (batch_size, seq_len)
@@ -83,3 +84,53 @@ class LabelSmoothingLoss2(nn.Module):
         count = (targets != self.pad_index).sum().item()
 
         return loss, count
+
+
+class RiskLoss(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+
+    def forward(self, net_output, model, sample):
+        """Compute the sequence-level loss for the given hypotheses.
+
+        Returns a tuple with three elements:
+        1) the loss, as a Variable
+        2) the sample size, which is used as the denominator for the gradient
+        3) logging outputs to display while training
+        """
+        ######################risk on classic_seq branch ########################
+        scores = self.get_hypothesis_scores(net_output, sample)
+        lengths = self.get_hypothesis_lengths(net_output, sample)
+        avg_scores = scores.sum(2) / lengths  # average over length
+        probs = F.softmax(avg_scores.exp_())
+        loss = (probs * sample['cost'].type_as(probs)).sum()  # average over batch
+        sample_size = net_output.size(0)  # bsz
+        logging_output = {
+            'loss': loss.data[0],
+            'sample_size': sample_size,
+            'sum_cost': sample['cost'].sum(),
+            'num_cost': sample['cost'].numel(),
+        }
+        return loss, sample_size, logging_output
+        ####################Cross entropy on master branch#############################
+        net_output = model(**sample['net_input'])
+        loss, _ = self.compute_loss(model, net_output, sample, reduce=reduce)
+        sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
+        logging_output = {
+            'loss': utils.item(loss.data) if reduce else loss.data,
+            'ntokens': sample['ntokens'],
+            'nsentences': sample['target'].size(0),
+            'sample_size': sample_size,
+        }
+        return loss, sample_size, logging_output
+
+
+        def compute_loss(self, model, net_output, sample, reduce=True):
+            lprobs = model.get_normalized_probs(net_output, log_probs=True)
+            lprobs = lprobs.view(-1, lprobs.size(-1))
+            target = model.get_targets(sample, net_output).view(-1)
+            loss = F.nll_loss(lprobs, target, size_average=False, ignore_index=self.padding_idx,
+                              reduce=reduce)
+            return loss, loss

@@ -95,14 +95,15 @@ class Trainer:
                 target_lens = targets.ne(self.model.padding_idx).sum(dim=-1)
                 targets = [target[1:length - 1].tolist() for target, length in
                            zip(targets, target_lens)]  # truncate the targets to their real size without paddings
-                batch_risks = []
-                for b in range(beams.shape[1]):
-                    predictions = [b[1:l - 1].tolist() for b, l in zip(beams[:, b, :], beam_lens[:, b])]
+                batch_risks = [] #this is not batch! it's over beams
+                for b in range(beams.shape[1]):#beams.shape[1] is beam size
+                    predictions = [beam[1:l - 1].tolist() for beam, l in zip(beams[:, b, :], beam_lens[:, b])]
+                    #predictions = [b[1:l - 1].tolist() for b, l in zip(beams[:, b, :], beam_lens[:, b])]
                     risks = torch.tensor(risk_func(predictions, targets), dtype=torch.float, device=self.device)
                     batch_risks.append(risks)
                 batch_risks = torch.stack(batch_risks, dim=-1)
 
-                batch_probas = []
+                batch_probas = [] #this is not batch! it's over beams
                 for b in range(beams.shape[1]):
                     logits = self.model.decode(beams[:, b, :-1], enc_contexts)
                     probas = F.log_softmax(logits, dim=-1)
