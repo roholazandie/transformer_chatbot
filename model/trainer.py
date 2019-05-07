@@ -75,7 +75,7 @@ class Trainer:
             # lm loss
             batch_lm_loss = torch.tensor(0, dtype=torch.float, device=self.device)
             for context in contexts:
-                enc_context = self.model.encode(context)
+                enc_context = self.model.encode(context.clone())
                 enc_contexts.append(enc_context)
 
                 if self.lm_weight > 0:
