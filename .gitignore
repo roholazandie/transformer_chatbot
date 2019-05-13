@@ -8,3 +8,4 @@ datasets/*
 config.py
 model/parameters/*
 env/*
+env3/*
