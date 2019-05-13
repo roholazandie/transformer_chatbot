@@ -2,16 +2,21 @@ import torch
 import torch.nn.functional as F
 import random
 
+
 class SamplingSearch():
 
-    def __init__(self, model):
-        #todo: sampling can be augmented with beam search strategy
-        #todo: below should go inside a loop
+    def __init__(self, model, max_seq_len, temperature=1.0, top_k=0, top_p=0.9, ):
+        # todo: sampling can be augmented with beam search strategy
+        # todo: below should go inside a loop
         self.model = model
+        self.max_seq_len = max_seq_len
+        self.temperature = temperature
+        self.top_k = top_k
+        self.top_p = top_p
 
     def search(self):
 
-        def top_k_top_p_filtering(self, logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
+        def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
             """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
                 Args:
                     logits: logits distribution shape (..., vocabulary size)
@@ -38,34 +43,34 @@ class SamplingSearch():
                 logits[indices_to_remove] = filter_value
             return logits
 
-        # Here is how to use this function for top-p sampling
-        temperature = 1.0
-        top_k = 0
-        top_p = 0.9
+        tokens = []
+        for i in range(self.max_seq_len):
+            # Get logits with a forward pass in our model (input is pre-defined)
+            logits = self.model(input)
 
-        # Get logits with a forward pass in our model (input is pre-defined)
-        logits = self.model(input)
+            # Keep only the last token predictions, apply a temperature coefficient and filter
+            logits = logits[..., -1, :] / self.temperature
+            filtered_logits = top_k_top_p_filtering(logits, top_k=self.top_k, top_p=self.top_p)
 
-        # Keep only the last token predictions, apply a temperature coefficient and filter
-        logits = logits[..., -1, :] / temperature
-        filtered_logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
+            # Sample from the filtered distribution
+            probabilities = F.softmax(filtered_logits, dim=-1)
+            next_token = torch.multinomial(probabilities, 1)
+            tokens.append(next_token)
 
-        # Sample from the filtered distribution
-        probabilities = F.softmax(filtered_logits, dim=-1)
-        next_token = torch.multinomial(probabilities, 1)
+        return tokens
 
 
 class BeamSearch():
 
     def __init__(self, model,
-                 beam_size,
-                 diversity_groups,
-                 length_penalty_coef,
-                 max_seq_len,
-                 diversity_coef,
-                 sample,
-                 annealing,
-                 annealing_topk):
+                 beam_size=5,
+                 diversity_groups=1,
+                 length_penalty_coef=0.8,
+                 max_seq_len=256,
+                 diversity_coef=0,
+                 sample=False,
+                 annealing=0,
+                 annealing_topk=None):
         self.model = model
         self.beam_size = beam_size
         self.diversity_groups = diversity_groups
@@ -81,6 +86,11 @@ class BeamSearch():
         """https://arxiv.org/abs/1609.08144"""
         return (5 + sequence_lengths) ** self.length_penalty_coef / (5 + 1) ** self.length_penalty_coef
 
+    def predict(self, contexts=[]):  # todo probably we need a class generator to have predict
+        enc_contexts = [self.model.encode(c) for c in contexts]
+        prediction = self.search(enc_contexts)
+
+        return prediction
 
     def search(self, enc_contexts=[], return_beams=True):
         with torch.no_grad():
@@ -187,7 +197,7 @@ class BeamSearch():
                 current_sample_prob *= self.annealing
 
             predicts = []
-            result = prevs.view(batch_size, self.beam_size, -1)
+            result = prevs.view(batch_size, self.beam_size, -1)  # B x b x T
 
             if return_beams:
                 return result, beam_lens
