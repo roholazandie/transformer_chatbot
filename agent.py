@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
 from collections import deque
+
+from model.search import BeamSearch
 from parlai.core.agents import Agent
 from model.transformer_model import TransformerModel
 from utils.text import BPEVocab
@@ -117,15 +119,20 @@ class TransformerAgent(Agent):
                                           ff_dropout=model_config.ff_dropout,
                                           bos_id=self.vocab.bos_id,
                                           eos_id=self.vocab.eos_id,
-                                          max_seq_len=self.opt['max_seq_len'],
-                                          beam_size=self.opt['beam_size'],
-                                          length_penalty=self.opt['length_penalty'],
                                           n_segments=model_config.n_segments,
-                                          sample=self.opt['sample'],
-                                          annealing_topk=self.opt['annealing_topk'],
-                                          annealing=self.opt['annealing'],
-                                          diversity_coef=self.opt['diversity_coef'],
-                                          diversity_groups=self.opt['diversity_groups'])
+                                          )
+
+            self.searcher = BeamSearch(self.model,
+                                  beam_size=model_config.beam_size,
+                                  diversity_groups=model_config.diversity_groups,
+                                  length_penalty_coef=model_config.length_penalty,
+                                  max_seq_len=model_config.max_seq_len,
+                                  diversity_coef=model_config.diversity_coef,
+                                  sample=False,
+                                  annealing=model_config.annealing,
+                                  annealing_topk=model_config.annealing_topk
+                                  )
+
             self.retrieval_bot = RetrievalBot()
 
             state_dict = torch.load(model_config.checkpoint_path, map_location=lambda storage, loc: storage)
@@ -273,8 +280,11 @@ class TransformerAgent(Agent):
                     dialogs = dialogs.cuda()
                 contexts.append(dialogs)
 
+            #todo the following two lines can be replaced with self.searcher.predict(contexts)
             enc_contexts = [self.model.encode(c) for c in contexts]
-            pred_texts = self.model.beam_search(enc_contexts)
+            #pred_texts = self.model.beam_search(enc_contexts)
+            pred_texts = self.searcher.search(enc_contexts)
+
 
             for i in range(batch_size):
                 pred_text_str, pred_text = self._postprocess_text(pred_texts[i], valid_observations[i]['agent'])

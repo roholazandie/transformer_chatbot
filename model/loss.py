@@ -88,14 +88,15 @@ class LabelSmoothingLoss2(nn.Module):
 
 class RiskLoss(nn.Module):
 
-    def __init__(self, risk_func, model, device):
+    def __init__(self, risk_func, model, searcher, device):
         super().__init__()
         self.risk_func = risk_func
         self.model = model
+        self.searcher = searcher
         self.device = device
 
     def forward(self, enc_contexts, targets):
-        beams, beam_lengths = self.model.beam_search(enc_contexts, return_beams=True)
+        beams, beam_lengths = self.searcher.search(enc_contexts, return_beams=True)
 
         target_lens = targets.ne(self.model.padding_idx).sum(dim=-1)
         targets = [target[1:length - 1].tolist() for target, length in

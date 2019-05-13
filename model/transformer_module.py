@@ -64,7 +64,7 @@ class MultiheadAttention(nn.Module):
         return x
 
     def forward(self, query, key, value, padding_mask):
-        qkv_same = (query.data_ptr() == key.data_ptr() == value.data_ptr())
+        qkv_same = (query.data_ptr() == key.data_ptr() == value.data_ptr()) # self-attention
         kv_same = (key.data_ptr() == value.data_ptr())
 
         if qkv_same:
@@ -127,17 +127,45 @@ class TransformerBlock(nn.Module):
         self.ff_norm = nn.LayerNorm(n_features)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, padding_mask, *contexts):
-        '''contexts = [(context1, padding_mask1), ...]'''
-        #todo rooh: the contribution of the alg lies here
-        inputs = (x, padding_mask) + contexts #todo rooh: the context here is h not the context defined in data loader
+    # def forward(self, x, padding_mask, *contexts):
+    #     '''contexts = [(context1, padding_mask1), ...]'''
+    #     #todo rooh: the contribution of the alg lies here
+    #     inputs = (x, padding_mask) + contexts #todo rooh: the context here is h not the context defined in data loader
+    #
+    #     full_attn = 0
+    #     n_attn = len(inputs) // 2
+    #     for i in range(0, len(inputs), 2):
+    #         c, m = inputs[i], inputs[i+1].byte()
+    #         a = self.attn(x, c, c, m)
+    #         full_attn += (a / n_attn)
+    #
+    #     full_attn = self.dropout(full_attn)
+    #     x = self.attn_norm(x + full_attn)
+    #
+    #     f = self.ff(x)
+    #     f = self.dropout(f)
+    #     x = self.ff_norm(x + f)
+    #
+    #     #return (x, padding_mask) + contexts
+    #     return x
 
+    def forward(self, x, padding_mask, *contexts):
         full_attn = 0
-        n_attn = len(inputs) // 2
-        for i in range(0, len(inputs), 2):
-            c, m = inputs[i], inputs[i+1].byte()
-            a = self.attn(x, c, c, m)
-            full_attn += (a / n_attn)
+        if contexts:
+            inputs = (x, padding_mask) + contexts
+
+            target_encoded, target_padding = inputs[0], inputs[1].byte()
+            persona_encoded, persona_padding = inputs[2], inputs[3].byte()
+            h_encoded, h_padding = inputs[4], inputs[5].byte()
+
+            a1 = self.attn(target_encoded, target_encoded, target_encoded, target_padding)
+            a2 = self.attn(target_encoded, persona_encoded, persona_encoded, persona_padding)
+            a3 = self.attn(target_encoded, h_encoded, h_encoded, h_padding)
+
+            full_attn = (a1 + a2 + a3)/3
+
+        else:
+            full_attn = self.attn(x, x, x, padding_mask.byte())
 
         full_attn = self.dropout(full_attn)
         x = self.attn_norm(x + full_attn)
@@ -146,7 +174,7 @@ class TransformerBlock(nn.Module):
         f = self.dropout(f)
         x = self.ff_norm(x + f)
 
-        return (x, padding_mask) + contexts
+        return x
 
 
 class TransformerModule(nn.Module):
@@ -187,6 +215,19 @@ class TransformerModule(nn.Module):
         else:
             for layer in self.layers:
                 out = layer(x, padding_mask, *enc_contexts)
-                x = out[0] #todo rooh: this select only the x, needs a refactoring to clean up
-        
+                #x = out[0] #todo rooh: this select only the x, needs a refactoring to clean up
+                x = out
+
         return x, padding_mask
+
+
+class TransformerLMHead(nn.Module):
+    def __init__(self, embedding_weights):
+        super().__init__()
+        embed_shape = embedding_weights.shape
+        self.decoder = nn.Linear(embed_shape[0], embed_shape[1], bias=False)
+        self.decoder.weight = embedding_weights
+
+    def forward(self, enc_contexts):
+        lm_logits = self.decoder(enc_contexts)
+        return lm_logits

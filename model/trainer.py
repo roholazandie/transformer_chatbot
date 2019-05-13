@@ -12,29 +12,16 @@ from model.loss import LabelSmoothingLoss, RiskLoss
 
 
 class Trainer:
-    def __init__(self, model, train_dataloader, test_dataloader=None, optimizer=None, batch_size=8,
+    def __init__(self, model, searcher, train_dataloader, test_dataloader=None, optimizer=None, batch_size=8,
                  batch_split=1, lm_weight=0.5, risk_weight=0, lr=6.25e-5, lr_warmup=2000,
                  test_period=1, clip_grad=None, label_smoothing=0, last_checkpoint_path=None, device=torch.device('cuda'),
                  vocab=None):
 
-        # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        # if torch.cuda.device_count() > 1:
-        #     print("Let's use ", torch.cuda.device_count(), "GPU's")
-        #     self.model = nn.DataParallel(model, device_ids=[0, 2])
-
         self.model = model.to(device)
+        self.searcher = searcher
         self.lm_criterion = nn.CrossEntropyLoss(ignore_index=self.model.padding_idx).to(device)
         self.criterion = LabelSmoothingLoss(n_labels=self.model.n_embeddings, smoothing=label_smoothing,
                                             ignore_index=self.model.padding_idx).to(device)
-        # base_optimizer = Adam(self.model.parameters(), lr=lr, weight_decay=0.01)
-        # self.optimizer = NoamOpt(self.model.embeddings_size, lr, lr_warmup, base_optimizer)
-
-        # self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size // batch_split, shuffle=True,
-        #                                    num_workers=n_jobs, collate_fn=self.collate_func)
-        # if test_dataset is not None:
-        #     self.test_dataloader = DataLoader(test_dataset, batch_size=batch_size // batch_split, shuffle=False,
-        #                                       num_workers=n_jobs, collate_fn=self.collate_func)
-
         self.optimizer = optimizer
         self.train_dataloader = train_dataloader
         if test_dataloader is not None:
@@ -58,7 +45,7 @@ class Trainer:
         self.model.load_state_dict(state_dict['model'], strict=False)
         self.optimizer.load_state_dict(state_dict['optimizer'])
 
-    def _eval_train(self, epoch, data, risk_func=None, experiment=None):
+    def train_epoch(self, epoch, data, risk_func=None, experiment=None):
         self.model.train()  # set the model to training mode(this is not training)
 
         #tqdm.monitor_interval = 0
@@ -75,7 +62,7 @@ class Trainer:
             # lm loss
             batch_lm_loss = torch.tensor(0, dtype=torch.float, device=self.device)
             for context in contexts:
-                enc_context = self.model.encode(context.clone())
+                enc_context = self.model.encode(context.clone())#looks like we need clone for cuda 10(not needed for cuda 9)
                 enc_contexts.append(enc_context)
 
                 if self.lm_weight > 0:
@@ -94,32 +81,8 @@ class Trainer:
             # risk loss
             batch_risk_loss = torch.tensor(0, dtype=torch.float, device=self.device)
             if risk_func is not None and self.risk_weight > 0:
-                risk_criterion = RiskLoss(risk_func, self.model, self.device)
+                risk_criterion = RiskLoss(risk_func, self.model, self.searcher, self.device)
                 batch_risk_loss = risk_criterion(enc_contexts, targets)
-                # beams, beam_lens = self.model.beam_search(enc_contexts, return_beams=True)
-                #
-                # target_lens = targets.ne(self.model.padding_idx).sum(dim=-1)
-                # targets = [target[1:length - 1].tolist() for target, length in
-                #            zip(targets, target_lens)]  # truncate the targets to their real size without paddings
-                # batch_risks = [] #this is not batch! it's over beams
-                # for b in range(beams.shape[1]):#beams.shape[1] is beam size
-                #     predictions = [beam[1:l - 1].tolist() for beam, l in zip(beams[:, b, :], beam_lens[:, b])]
-                #     #predictions = [b[1:l - 1].tolist() for b, l in zip(beams[:, b, :], beam_lens[:, b])]
-                #     risks = torch.tensor(risk_func(predictions, targets), dtype=torch.float, device=self.device)
-                #     batch_risks.append(risks)
-                # batch_risks = torch.stack(batch_risks, dim=-1)
-                #
-                # batch_probas = [] #this is not batch! it's over beams
-                # for b in range(beams.shape[1]):
-                #     logits = self.model.decode(beams[:, b, :-1], enc_contexts)
-                #     probas = F.log_softmax(logits, dim=-1)
-                #     probas = torch.gather(probas, -1, beams[:, b, 1:].unsqueeze(-1)).squeeze(-1)
-                #     probas = probas.sum(dim=-1) / beam_lens[:, b].float()
-                #     batch_probas.append(probas)
-                # batch_probas = torch.stack(batch_probas, dim=-1)
-                # batch_probas = F.softmax(batch_probas, dim=-1)
-                #
-                # batch_risk_loss = torch.mean((batch_risks * batch_probas).sum(dim=-1))
 
             # optimization
             full_loss = (batch_lm_loss * self.lm_weight + self.risk_weight * batch_risk_loss + batch_loss) / self.batch_split
@@ -145,7 +108,7 @@ class Trainer:
                 experiment.add_metric("LM_Loss", lm_loss)
 
 
-    def _eval_test(self, metric_funcs={}):
+    def test_epoch(self, metric_funcs={}):
         self.model.eval()
 
         tqdm_data = tqdm(self.test_dataloader, desc='Test')
@@ -168,8 +131,7 @@ class Trainer:
                     ignore_mask = torch.stack([context == idx for idx in self.ignore_idxs], dim=-1).any(dim=-1)
                     context.masked_fill_(ignore_mask, self.model.padding_idx)
                     prevs, nexts = context_outputs[:, :-1, :].contiguous(), context[:, 1:].contiguous()
-                    batch_lm_loss += (
-                                self.lm_criterion(prevs.view(-1, prevs.shape[-1]), nexts.view(-1)) / len(contexts))
+                    batch_lm_loss += (self.lm_criterion(prevs.view(-1, prevs.shape[-1]), nexts.view(-1)) / len(contexts))
 
             # s2s loss
             prevs, nexts = targets[:, :-1].contiguous(), targets[:, 1:].contiguous()
@@ -177,7 +139,7 @@ class Trainer:
             outputs = F.log_softmax(outputs, dim=-1)
             batch_loss = self.criterion(outputs.view(-1, outputs.shape[-1]), nexts.view(-1))
             #new compared to eval_train
-            predictions = self.model.beam_search(enc_contexts)
+            predictions = self.searcher.predict(enc_contexts)
             target_lens = targets.ne(self.model.padding_idx).sum(dim=-1)
             targets = [t[1:l - 1].tolist() for t, l in
                        zip(targets, target_lens)]  # truncate the targets to their real size without paddings
@@ -192,7 +154,7 @@ class Trainer:
 
     def test(self, metric_funcs={}):
         if hasattr(self, 'test_dataloader'):
-            self._eval_test(metric_funcs)
+            self.test_epoch(metric_funcs)
 
     def train(self, epochs, after_epoch_funcs=[], risk_func=None, experiment=None):
         #after_epoch_funcs = [self.sample_text_func, self.test_func, self.save_func]
@@ -202,7 +164,7 @@ class Trainer:
 
         for epoch in experiment.epoch_loop(epochs):
             data = [([first_batch[0][0].clone(), first_batch[0][1].clone()], first_batch[1].clone()) for _ in range(500)]
-            self._eval_train(epoch, data, risk_func, experiment)
+            self.train_epoch(epoch, data, risk_func, experiment)
 
             for func in after_epoch_funcs:
                 func(epoch)
@@ -218,7 +180,8 @@ class Trainer:
             contexts = [torch.tensor([c], dtype=torch.long, device=self.device) for c in [persona_info, dialog]
                         if len(c) > 0]
 
-            prediction = self.model.predict(contexts)[0]
+            #prediction = self.model.predict(contexts)[0]
+            prediction = self.searcher.predict(contexts)[0]
 
             persona_info_str = self.vocab.ids2string(persona_info[1:-1])
             dialog_str = self.vocab.ids2string(dialog)

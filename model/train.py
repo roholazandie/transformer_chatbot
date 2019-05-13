@@ -1,5 +1,8 @@
 import torch
+from torch import nn
 import random
+
+from model.loss import LabelSmoothingLoss
 from utils.utils import load_openai_weights, set_seed
 from utils.metrics import f1_risk, f1_score, bleu_score
 from model.transformer_model import TransformerModel
@@ -10,6 +13,7 @@ from model.config import get_model_config, get_trainer_config
 from torch.utils.data import DataLoader
 from utils.utils import pad_sequence
 from model.optim import Adam, NoamOpt
+from model.search import BeamSearch
 import missinglink
 
 
@@ -37,6 +41,13 @@ def main():
 
     vocab = BPEVocab.from_files(model_config.bpe_vocab_path, model_config.bpe_codes_path)
 
+    # todo need to be added if we want to use TransformerLMHead
+    # lm_criterion = nn.CrossEntropyLoss(ignore_index=vocab.pad_id).to(device)
+    # criterion = LabelSmoothingLoss(n_labels=len(vocab),
+    #                                smoothing=trainer_config.label_smoothing,
+    #                                ignore_index=vocab.pad_id).to(device)
+
+
     transformer = TransformerModel(n_layers=model_config.n_layers,
                                    n_embeddings=len(vocab),
                                    n_pos_embeddings=model_config.n_pos_embeddings,
@@ -50,13 +61,20 @@ def main():
                                    bos_id=vocab.bos_id,
                                    eos_id=vocab.eos_id,
                                    max_seq_len=model_config.max_seq_len,
-                                   beam_size=model_config.beam_size,
-                                   length_penalty=model_config.length_penalty,
                                    n_segments=model_config.n_segments,
-                                   annealing_topk=model_config.annealing_topk,
-                                   annealing=model_config.annealing,
-                                   diversity_coef=model_config.diversity_coef,
-                                   diversity_groups=model_config.diversity_groups)
+                                   )
+
+    searcher = BeamSearch(transformer,
+                          beam_size=model_config.beam_size,
+                          diversity_groups=model_config.diversity_groups,
+                          length_penalty_coef=model_config.length_penalty,
+                          max_seq_len=model_config.max_seq_len,
+                          diversity_coef=model_config.diversity_coef,
+                          sample=False,
+                          annealing=model_config.annealing,
+                          annealing_topk=model_config.annealing_topk
+                          )
+
 
     if not trainer_config.load_last:
         load_openai_weights(transformer.transformer_module,
@@ -77,6 +95,7 @@ def main():
     optimizer = NoamOpt(transformer.embeddings_size, trainer_config.lr, trainer_config.lr_warmup, base_optimizer)
 
     model_trainer = Trainer(transformer,
+                            searcher,
                             train_loader,
                             test_loader,
                             optimizer=optimizer,
@@ -96,40 +115,6 @@ def main():
         state_dict = torch.load(trainer_config.last_checkpoint_path, map_location=device)
         model_trainer.load_state_dict(state_dict)
         print('Weights loaded from {}'.format(trainer_config.last_checkpoint_path))
-
-    # def save_func(epoch):
-    #     torch.save(model_trainer.state_dict(), trainer_config.last_checkpoint_path)
-
-    # def sample_text_func(epoch):
-    #     n_samples = 5
-    #     samples_idxs = random.sample(range(len(test_dataset)), n_samples)
-    #     samples = [test_dataset[idx] for idx in samples_idxs]
-    #     for persona_info, dialog, target in samples:
-    #         contexts = [torch.tensor([c], dtype=torch.long, device=model_trainer.device) for c in [persona_info, dialog]
-    #                     if len(c) > 0]
-    #         prediction = model_trainer.model.predict(contexts)[0]
-    #
-    #         persona_info_str = vocab.ids2string(persona_info[1:-1])
-    #         dialog_str = vocab.ids2string(dialog)
-    #         dialog_str = dialog_str.replace(vocab.talker1_bos, '\n\t- ').replace(vocab.talker2_bos, '\n\t- ')
-    #         dialog_str = dialog_str.replace(vocab.talker1_eos, '').replace(vocab.talker2_eos, '')
-    #         target_str = vocab.ids2string(target[1:-1])
-    #         prediction_str = vocab.ids2string(prediction)
-    #
-    #         print('\n')
-    #         print('Persona info:\n\t{}'.format(persona_info_str))
-    #         print('Dialog:{}'.format(dialog_str))
-    #         print('Target:\n\t{}'.format(target_str))
-    #         print('Prediction:\n\t{}'.format(prediction_str))
-
-    # def test_func(epoch):
-    #     if (epoch + 1) % trainer_config.test_period == 0:
-    #         metric_funcs = {'f1_score': f1_score, "bleu_score": bleu_score}
-    #         model_trainer.test(metric_funcs)
-
-    # def f1_risk(predictions, targets):
-    #     scores = f1_score(predictions, targets, average=False)
-    #     return [1 - s for s in scores]
 
     try:
         with missinglink_project.create_experiment(model=transformer,
