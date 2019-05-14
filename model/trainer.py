@@ -54,7 +54,7 @@ class Trainer:
         lm_loss = 0
         risk_loss = 0
 
-        for i, (contexts, targets) in experiment.batch_loop(iterable=data):
+        for i, (contexts, targets) in experiment.batch_loop(iterable=self.train_dataloader):
             contexts, targets = [c.to(self.device) for c in contexts], targets.to(self.device)
 
             enc_contexts = []
@@ -103,7 +103,7 @@ class Trainer:
             #tqdm_data.set_postfix({'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss})
             print(str({'i': str(i), 'lm_loss': lm_loss, 'loss': loss, 'risk_loss': risk_loss}))
 
-            if i % 1 == 0:
+            if i % 10 == 0:
                 experiment.add_metric("Loss", loss)
                 experiment.add_metric("LM_Loss", lm_loss)
 
@@ -160,11 +160,11 @@ class Trainer:
         #after_epoch_funcs = [self.sample_text_func, self.test_func, self.save_func]
 
         #sanity check to make sure there is no problem with the model
-        first_batch = next(iter(self.train_dataloader))
+        #first_batch = next(iter(self.train_dataloader))
 
         for epoch in experiment.epoch_loop(epochs):
-            data = [([first_batch[0][0].clone(), first_batch[0][1].clone()], first_batch[1].clone()) for _ in range(500)]
-            self.train_epoch(epoch, data, risk_func, experiment)
+            #data = [([first_batch[0][0].clone(), first_batch[0][1].clone()], first_batch[1].clone()) for _ in range(500)]
+            self.train_epoch(epoch, [], risk_func, experiment)
 
             for func in after_epoch_funcs:
                 func(epoch)
