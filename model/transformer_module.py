@@ -155,14 +155,19 @@ class TransformerBlock(nn.Module):
             inputs = (x, padding_mask) + contexts
 
             target_encoded, target_padding = inputs[0], inputs[1].byte()
-            persona_encoded, persona_padding = inputs[2], inputs[3].byte()
-            h_encoded, h_padding = inputs[4], inputs[5].byte()
-
             a1 = self.attn(target_encoded, target_encoded, target_encoded, target_padding)
-            a2 = self.attn(target_encoded, persona_encoded, persona_encoded, persona_padding)
-            a3 = self.attn(target_encoded, h_encoded, h_encoded, h_padding)
 
-            full_attn = (a1 + a2 + a3)/3
+
+            persona_encoded, persona_padding = inputs[2], inputs[3].byte()
+            a2 = self.attn(target_encoded, persona_encoded, persona_encoded, persona_padding)
+
+            if len(inputs) == 6:
+                h_encoded, h_padding = inputs[4], inputs[5].byte()
+                a3 = self.attn(target_encoded, h_encoded, h_encoded, h_padding)
+
+                full_attn = (a1 + a2 + a3) / 3
+            else:
+                full_attn = (a1 + a2)/2
 
         else:
             full_attn = self.attn(x, x, x, padding_mask.byte())

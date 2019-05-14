@@ -92,7 +92,7 @@ class BeamSearch():
 
         return prediction
 
-    def search(self, enc_contexts=[], return_beams=True):
+    def search(self, enc_contexts=[], return_beams=False): #by default no beams will be returned
         with torch.no_grad():
             if len(enc_contexts) == 0:
                 return []
