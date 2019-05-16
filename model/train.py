@@ -112,8 +112,12 @@ def main():
                             vocab=vocab)
 
     if trainer_config.load_last:
-        state_dict = torch.load(trainer_config.last_checkpoint_path, map_location=device)
-        model_trainer.load_state_dict(state_dict)
+        model_dict = model_trainer.state_dict()
+        pretrained_state_dict = torch.load(trainer_config.last_checkpoint_path, map_location=device)
+        #pretrained_state_dict = {k: v for k, v in pretrained_state_dict['model'].items() if k in model_dict['model']}
+        pretrained_state_dict['model']['decoder.weight'] = pretrained_state_dict['model']['pre_softmax.weight']
+        del pretrained_state_dict['model']['pre_softmax.weight']
+        model_trainer.load_state_dict(pretrained_state_dict)
         print('Weights loaded from {}'.format(trainer_config.last_checkpoint_path))
 
     try:
