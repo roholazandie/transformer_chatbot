@@ -5,7 +5,7 @@ import random
 
 class SamplingSearch():
 
-    def __init__(self, model, max_seq_len, temperature=1.0, top_k=0, top_p=0.9, ):
+    def __init__(self, model, max_seq_len, temperature=1.0, top_k=0, top_p=0.9, special_tokens_ids = [],no_sample=True):
         # todo: sampling can be augmented with beam search strategy
         # todo: below should go inside a loop
         self.model = model
@@ -13,10 +13,13 @@ class SamplingSearch():
         self.temperature = temperature
         self.top_k = top_k
         self.top_p = top_p
+        self.special_tokens_ids = special_tokens_ids
+        self.no_sample = no_sample
+        self.min_length = 1
 
-    def search(self):
+    def search(self, enc_contexts=[]):
 
-        def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
+        def top_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
             """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
                 Args:
                     logits: logits distribution shape (..., vocabulary size)
@@ -43,21 +46,35 @@ class SamplingSearch():
                 logits[indices_to_remove] = filter_value
             return logits
 
-        tokens = []
+        batch_size = enc_contexts[0][0].shape[0]
+        device = next(self.model.parameters()).device
+        prevs = torch.full((batch_size, 1), fill_value=self.model.bos_id, dtype=torch.long, device=device)
+
+
+        current_output = []
         for i in range(self.max_seq_len):
             # Get logits with a forward pass in our model (input is pre-defined)
-            logits = self.model(input)
-
+            outputs, _ = self.model.transformer_module(prevs, enc_contexts)
+            logits = self.model.generate(outputs[:, -1, :])
             # Keep only the last token predictions, apply a temperature coefficient and filter
-            logits = logits[..., -1, :] / self.temperature
-            filtered_logits = top_k_top_p_filtering(logits, top_k=self.top_k, top_p=self.top_p)
+            logits = logits[0, :] / self.temperature
+            logits = top_filtering(logits, top_k=self.top_k, top_p=self.top_p)
+            probs = F.softmax(logits, dim=-1)
 
             # Sample from the filtered distribution
-            probabilities = F.softmax(filtered_logits, dim=-1)
-            next_token = torch.multinomial(probabilities, 1)
-            tokens.append(next_token)
+            prev = torch.topk(probs, 1)[1] if self.no_sample else torch.multinomial(probs, 1)
+            # if i < self.min_length and prev.item() in special_tokens_ids:  # todo rooh: to remove special tokens
+            #     while prev.item() in special_tokens_ids:
+            #         prev = torch.multinomial(probs, num_samples=1)
+            #
+            if prev.item() in self.special_tokens_ids:
+                break
+            current_output.append(prev.item())
+            prevs = torch.cat([prevs, prev.unsqueeze(0)], dim=1)
 
-        return tokens
+
+
+        return [current_output]
 
 
 class BeamSearch():
@@ -176,7 +193,7 @@ class BeamSearch():
                     beam_idxs = (idxs.float() / self.n_embeddings).long()
 
                 penalty = torch.gather(penalty, 1, idxs)
-                sym_idxs = torch.fmod(idxs, log_probs.shape[-1])
+                sym_idxs = torch.fmod(idxs, log_probs.shape[-1])#element-wise remainder of division
                 is_end = torch.gather(is_end, 1, beam_idxs)
                 beam_lens = torch.gather(beam_lens, 1, beam_idxs)
 

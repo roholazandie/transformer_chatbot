@@ -38,9 +38,9 @@ class TransformerModel(nn.Module):
                                                     ff_dropout, n_segments)
 
         #probably we don't need these if we add TransformerLMHead###########
-        self.pre_softmax = nn.Linear(embeddings_size, n_embeddings, bias=False) #todo:(VERY IMPORTANT) pre_softmax should changed to decoder
+        self.decoder = nn.Linear(embeddings_size, n_embeddings, bias=False) 
         # Share the weight matrix between word embedding & the final logit dense layer(pre_softmax)
-        self.pre_softmax.weight = self.transformer_module.embeddings.weight
+        self.decoder.weight = self.transformer_module.embeddings.weight
         ########################################
 
         # todo need to be added if we want to use TransformerLMHead
@@ -54,7 +54,7 @@ class TransformerModel(nn.Module):
         return self.transformer_module(x)
 
     def generate(self, enc_x):
-        return self.pre_softmax(enc_x)
+        return self.decoder(enc_x)
 
     def decode(self, x, enc_contexts=[]):
         x, _ = self.transformer_module(x, enc_contexts)

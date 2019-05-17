@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 from collections import deque
 
-from model.search import BeamSearch
+from model.search import BeamSearch, SamplingSearch
 from parlai.core.agents import Agent
 from model.transformer_model import TransformerModel
 from utils.text import BPEVocab
@@ -13,12 +13,12 @@ from utils.sentiment import pick_emoji, clean_emoji
 from model.config import get_model_config
 import random
 
-      
+
 class TransformerAgent(Agent):
     @staticmethod
     def add_cmdline_args(argparser):
         agent_args = argparser.add_argument_group('Agent parameters')
-        agent_args.add_argument('-gpu', '--gpu', type=int, default=-1, 
+        agent_args.add_argument('-gpu', '--gpu', type=int, default=-1,
                                 help='which GPU to use')
         agent_args.add_argument('--no-cuda', type=bool, default=False,
                                 help='disable GPUs even if available. otherwise, will use GPUs if '
@@ -64,7 +64,7 @@ class TransformerAgent(Agent):
                                 help='')
         agent_args.add_argument('--length_penalty', type=float, default=0.6,
                                 help='')
-        
+
         return argparser
 
     def __init__(self, opt, shared=None):
@@ -122,24 +122,42 @@ class TransformerAgent(Agent):
                                           n_segments=model_config.n_segments,
                                           )
 
-            self.searcher = BeamSearch(self.model,
-                                  beam_size=model_config.beam_size,
-                                  diversity_groups=model_config.diversity_groups,
-                                  length_penalty_coef=model_config.length_penalty,
-                                  max_seq_len=model_config.max_seq_len,
-                                  diversity_coef=model_config.diversity_coef,
-                                  sample=False,
-                                  annealing=model_config.annealing,
-                                  annealing_topk=model_config.annealing_topk
-                                  )
+            if model_config.searcher == "beam":
+                self.searcher = BeamSearch(self.model,
+                                           beam_size=model_config.beam_size,
+                                           diversity_groups=model_config.diversity_groups,
+                                           length_penalty_coef=model_config.length_penalty,
+                                           max_seq_len=model_config.max_seq_len,
+                                           diversity_coef=model_config.diversity_coef,
+                                           sample=False,
+                                           annealing=model_config.annealing,
+                                           annealing_topk=model_config.annealing_topk
+                                           )
+
+            elif model_config.searcher == "sampling":
+                self.searcher = SamplingSearch(self.model,
+                                               max_seq_len=model_config.max_seq_len,
+                                               temperature=0.7,
+                                               top_k=0,
+                                               top_p=0.9,
+                                               special_tokens_ids=self.vocab.special_tokens_ids)
+            else:
+                raise ValueError("Must specifiy the searcher in config")
 
             self.retrieval_bot = RetrievalBot()
 
-            state_dict = torch.load(model_config.checkpoint_path, map_location=lambda storage, loc: storage)
-            if 'model' in state_dict:
-                state_dict = state_dict['model']
+            pretrained_state_dict = torch.load(model_config.checkpoint_path, map_location=lambda storage, loc: storage)
 
-            self.model.load_state_dict(state_dict)
+            # todo this part of the code is temporary
+            # in the pretrained model the name is pre_softmax.weight
+            if 'pre_softmax.weight' in pretrained_state_dict['model']:
+                pretrained_state_dict['model']['decoder.weight'] = pretrained_state_dict['model']['pre_softmax.weight']
+                del pretrained_state_dict['model']['pre_softmax.weight']
+
+            if 'model' in pretrained_state_dict:
+                pretrained_state_dict = pretrained_state_dict['model']
+
+            self.model.load_state_dict(pretrained_state_dict)
             print('Weights loaded from {}'.format(model_config.checkpoint_path))
 
             if self.use_cuda:
@@ -168,7 +186,7 @@ class TransformerAgent(Agent):
         dialog = []
         for subtext in text.split('\n'):
             subtext = subtext.strip()
-            
+
             if self.opt['wild_mode'] and len(self.history['info']) == 0 and len(self.history['dialog']) == 0:
                 subtext = 'your persona: ' + subtext
 
@@ -193,8 +211,8 @@ class TransformerAgent(Agent):
             if info:
                 self.history['str_info'] = ' '.join(info)
             self.history['str_dialog'].extend(dialog)
-        
-            info = sum([self.vocab.string2ids(i) for i in info], []) # concatenate all ids
+
+            info = sum([self.vocab.string2ids(i) for i in info], [])  # concatenate all ids
             self.history['info'].extend(info)
 
             for i, d in enumerate(dialog, 1):
@@ -206,15 +224,16 @@ class TransformerAgent(Agent):
 
                 self.history['dialog'].extend(d)
 
-        observation['agent'] = self # what's the use of this?
+        observation['agent'] = self  # what's the use of this?
 
         self.episode_done = observation['episode_done']
         self.observation = observation
-        
+
         return observation
-    
+
     def act(self):
-        return self.batch_act([self.observation])[0] #select the first one which is the highest rank response from a batch of responses
+        return self.batch_act([self.observation])[
+            0]  # select the first one which is the highest rank response from a batch of responses
 
     def _postprocess_text(self, reply, agent):
         str_reply = self.vocab.ids2string(reply)
@@ -261,9 +280,10 @@ class TransformerAgent(Agent):
         try:
             valid_observations = [observations[i] for i in valid_ids]
             # we trim to model.n_pos_embeddings-3 to be able to add the eos and bos and fit to network
-            infos = [obs['agent'].history['info'][:self.model.n_pos_embeddings-3] for obs in valid_observations]
+            infos = [obs['agent'].history['info'][:self.model.n_pos_embeddings - 3] for obs in valid_observations]
             infos = [([self.vocab.info_bos_id] + ifo + [self.vocab.info_eos_id] if len(ifo) else ifo) for ifo in infos]
-            dialogs = [list(obs['agent'].history['dialog'])[-self.model.n_pos_embeddings+1:] for obs in valid_observations]
+            dialogs = [list(obs['agent'].history['dialog'])[-self.model.n_pos_embeddings + 1:] for obs in
+                       valid_observations]
             contexts = []
 
             if max(map(len, infos)) > 0:
@@ -280,11 +300,9 @@ class TransformerAgent(Agent):
                     dialogs = dialogs.cuda()
                 contexts.append(dialogs)
 
-            #todo the following two lines can be replaced with self.searcher.predict(contexts)
+            # todo the following two lines can be replaced with self.searcher.predict(contexts)
             enc_contexts = [self.model.encode(c) for c in contexts]
-            #pred_texts = self.model.beam_search(enc_contexts)
             pred_texts = self.searcher.search(enc_contexts)
-
 
             for i in range(batch_size):
                 pred_text_str, pred_text = self._postprocess_text(pred_texts[i], valid_observations[i]['agent'])
@@ -304,8 +322,9 @@ class TransformerAgent(Agent):
                     scores = [[] for _ in range(len(candidates))]
 
                     for i in range(max(lens_candidates)):
-                        current_cands = [to_tensor(c[i])[:self.model.n_pos_embeddings-1] for c in candidates]
-                        current_cands = pad_sequence(current_cands, batch_first=True, padding_value=self.model.padding_idx)
+                        current_cands = [to_tensor(c[i])[:self.model.n_pos_embeddings - 1] for c in candidates]
+                        current_cands = pad_sequence(current_cands, batch_first=True,
+                                                     padding_value=self.model.padding_idx)
                         if self.use_cuda:
                             current_cands = current_cands.cuda()
 
@@ -343,7 +362,7 @@ class TransformerAgent(Agent):
 
     def reset(self):
         self.history = {'str_info': None, 'str_dialog': deque(DIALOG_SIZE * ['None'], maxlen=DIALOG_SIZE),
-                        'info': [], 'dialog': deque(maxlen=self.model.n_pos_embeddings-1)}
+                        'info': [], 'dialog': deque(maxlen=self.model.n_pos_embeddings - 1)}
         self.episode_done = True
         self.observation = None
         self.reply_checker.clean()

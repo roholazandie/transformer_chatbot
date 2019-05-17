@@ -92,7 +92,6 @@ class Trainer:
                 if self.clip_grad is not None:
                     for group in self.optimizer.param_groups:
                         nn.utils.clip_grad_norm_(group['params'], self.clip_grad)
-                print("step and zero_grad")
                 self.optimizer.step()
                 self.optimizer.zero_grad()
 
