@@ -142,7 +142,7 @@ class TransformerAgent(Agent):
                                                top_p=0.9,
                                                special_tokens_ids=self.vocab.special_tokens_ids)
             else:
-                raise ValueError("Must specifiy the searcher in config")
+                raise ValueError("Must specify the searcher in config")
 
             self.retrieval_bot = RetrievalBot()
 
