@@ -161,6 +161,7 @@ class Trainer:
         #sanity check to make sure there is no problem with the model
         #first_batch = next(iter(self.train_dataloader))
 
+        after_epoch_funcs = [self.save_func]
         for epoch in experiment.epoch_loop(epochs):
             #data = [([first_batch[0][0].clone(), first_batch[0][1].clone()], first_batch[1].clone()) for _ in range(500)]
             self.train_epoch(epoch, [], risk_func, experiment)
@@ -202,3 +203,4 @@ class Trainer:
 
     def save_func(self, epoch):
         torch.save(self.model.state_dict(), self.last_checkpoint_path)
+        print("model saved for epoch ", epoch)

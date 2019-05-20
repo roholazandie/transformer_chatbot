@@ -75,7 +75,7 @@ def openai_transformer_config():
     return cfg
 
 
-def load_openai_weights(model, directory, n_special_tokens=0):
+def load_openai_weights(model, directory, n_special_tokens=0): #this is loading weights from tf
     # TODO: add check of shapes
 
     parameters_names_path = os.path.join(directory, 'parameters_names.json')
