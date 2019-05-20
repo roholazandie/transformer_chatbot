@@ -3,7 +3,7 @@ from torch import nn
 import random
 
 from model.loss import LabelSmoothingLoss
-from utils.utils import load_openai_weights, set_seed
+from utils.common import load_openai_weights, set_seed
 from utils.metrics import f1_risk, f1_score, bleu_score
 from model.transformer_model import TransformerModel
 from model.trainer import Trainer
@@ -11,7 +11,7 @@ from utils.text import BPEVocab
 from model.dataset import FacebookDataset
 from model.config import get_model_config, get_trainer_config
 from torch.utils.data import DataLoader
-from utils.utils import pad_sequence
+from utils.common import pad_sequence
 from model.optim import Adam, NoamOpt
 from model.search import BeamSearch
 import missinglink

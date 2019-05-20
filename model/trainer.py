@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from utils.metrics import f1_score, bleu_score
 from utils.text import BPEVocab
-from utils.utils import pad_sequence
+from utils.common import pad_sequence
 from model.optim import Adam, NoamOpt
 from model.loss import LabelSmoothingLoss, RiskLoss
 

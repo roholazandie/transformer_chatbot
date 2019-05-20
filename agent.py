@@ -1,16 +1,18 @@
 import torch
 import torch.nn.functional as F
 from collections import deque
+from collections import defaultdict
 
 from model.search import BeamSearch, SamplingSearch
 from parlai.core.agents import Agent
 from model.transformer_model import TransformerModel
 from utils.text import BPEVocab
-from utils.utils import pad_sequence
+from utils.common import pad_sequence
 from model.postprocessing import ngram_replaser, ReplyChecker, detokenize, syntax_fix
 from utils.retrieval import RetrievalBot, DIALOG_SIZE
 from utils.sentiment import pick_emoji, clean_emoji
 from model.config import get_model_config
+from projects.convai2.build_dict import build_dict
 import random
 
 
@@ -99,6 +101,9 @@ class TransformerAgent(Agent):
         # 'annealing_topk': None,
         # 'annealing': 0,
         # 'length_penalty': 0.6,
+
+        convai_dict = build_dict()
+        self.prefix2words = self.get_prefix2words(convai_dict)
 
         if self.opt['annealing_topk'] is not None:
             assert self.opt['annealing_topk'] > self.opt['beam_size']
@@ -206,14 +211,14 @@ class TransformerAgent(Agent):
 
         if 'text' in observation:
             text = observation['text']
-            info, dialog = self._parse(text)
+            persona_info, dialog = self._parse(text)
 
-            if info:
-                self.history['str_info'] = ' '.join(info)
+            if persona_info:
+                self.history['str_info'] = ' '.join(persona_info)
             self.history['str_dialog'].extend(dialog)
 
-            info = sum([self.vocab.string2ids(i) for i in info], [])  # concatenate all ids
-            self.history['info'].extend(info)
+            persona_info = sum([self.vocab.string2ids(i) for i in persona_info], [])  # concatenate all ids
+            self.history['info'].extend(persona_info)
 
             for i, d in enumerate(dialog, 1):
                 d = self.vocab.string2ids(d)
@@ -334,7 +339,7 @@ class TransformerAgent(Agent):
                         log_probas.masked_fill_(current_cands[:, 1:].eq(self.model.padding_idx), 0)
 
                         current_lens = current_cands[:, 1:].ne(self.model.padding_idx).float().sum(dim=-1)
-                        current_scores = log_probas.sum(dim=-1) / current_lens
+                        current_scores = log_probas.sum(dim=-1) / current_lens #longer resposes corresponds to lower score
 
                         for k, s in enumerate(current_scores):
                             if i < lens_candidates[k]:
@@ -352,6 +357,54 @@ class TransformerAgent(Agent):
 
         return batch_reply
 
+
+    def next_word_probability(self, partial_out):
+        def is_valid_history(history):
+            return len(history['dialog'])
+
+        def to_tensor(string):
+            ids = [self.vocab.bos_id] + self.vocab.string2ids(string) + [self.vocab.eos_id]
+            return torch.tensor(ids, dtype=torch.long)
+
+        if is_valid_history(self.observation['agent'].history):
+            persona_info = self.observation['agent'].history['info'][:self.model.n_pos_embeddings - 3]
+            persona_info = [self.vocab.info_bos_id] + persona_info + [self.vocab.info_eos_id]
+
+            dialog = list(self.observation['agent'].history['dialog'])[-self.model.n_pos_embeddings+1:]
+
+            context = []
+            if len(persona_info) > 0:
+                info = torch.tensor(persona_info, dtype=torch.long)
+                info = pad_sequence(info.unsqueeze(0), batch_first=True, padding_value=self.model.padding_idx)
+                if self.use_cuda:
+                    info = info.cuda()
+                context.append(info)
+
+            if len(dialog) > 0:
+                dialog = torch.tensor(dialog, dtype=torch.long)
+                dialog = pad_sequence(dialog.unsqueeze(0), batch_first=True, padding_value=self.model.padding_idx)
+                if self.use_cuda:
+                    dialog = dialog.cuda()
+                context.append(dialog)
+
+            enc_contexts = [self.model.encode(c) for c in context]
+
+            partial_out = to_tensor(' '.join(partial_out))[:self.model.n_pos_embeddings - 1]
+            partial_out = pad_sequence(partial_out.unsqueeze(0), batch_first=True, padding_value=self.model.padding_idx)
+            if self.use_cuda:
+                partial_out = partial_out.cuda()
+
+            with torch.no_grad():
+                logits = self.model.decode(partial_out, enc_contexts)
+
+            probs = F.softmax(logits[0, -1], dim=0)
+
+            dist = {}
+            for prefix_id, words in self.prefix2words.items():
+                for word, ratio in words.items():
+                    dist[word] = probs[prefix_id].item() * ratio
+            return dist
+
     def share(self):
         shared = super(TransformerAgent, self).share()
         shared['opt'] = self.opt
@@ -366,3 +419,20 @@ class TransformerAgent(Agent):
         self.episode_done = True
         self.observation = None
         self.reply_checker.clean()
+
+
+    def get_prefix2words(self, convai_dict, smoothing_freq=5):
+        """ map BPE-prefix => dict(full_words beginning with BPE-prefix, associated words_counts) """
+        prefix2words = defaultdict(dict)
+        for i in range(len(convai_dict)):
+            word = convai_dict[i]
+            freq = convai_dict.freq[word] + smoothing_freq
+            bpe_tokens = self.vocab._bpe(word)
+            prefix_id = self.vocab.token2id[bpe_tokens[0]]
+            prefix2words[prefix_id].update(dict([(word, freq)]))
+
+        for prefix_id, words in prefix2words.items():
+            total_counts = sum(words.values())
+            prefix2words[prefix_id] = dict((word, count/total_counts) for word, count in words.items())
+
+        return prefix2words

@@ -9,3 +9,5 @@ config.py
 model/parameters/*
 env/*
 env3/*
+projects/*
+data/*

@@ -2,7 +2,7 @@ import random
 import torch
 from torch.utils.data import Dataset, DataLoader
 from utils.text import BPEVocab
-from utils.utils import pad_sequence
+from utils.common import pad_sequence
 
 
 class FacebookDataset(Dataset):
@@ -122,7 +122,7 @@ class FacebookDataset(Dataset):
 
 
 if __name__ == "__main__":
-    from utils.utils import pad_sequence
+    from utils.common import pad_sequence
     from torch.utils.data import Dataset, DataLoader
     from model.config import get_model_config, get_trainer_config
 
