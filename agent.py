@@ -237,8 +237,7 @@ class TransformerAgent(Agent):
         return observation
 
     def act(self):
-        return self.batch_act([self.observation])[
-            0]  # select the first one which is the highest rank response from a batch of responses
+        return self.batch_act([self.observation])[0]  # select the first one of the batch (the batch size is one so we select the first one)
 
     def _postprocess_text(self, reply, agent):
         str_reply = self.vocab.ids2string(reply)
@@ -285,6 +284,7 @@ class TransformerAgent(Agent):
         try:
             valid_observations = [observations[i] for i in valid_ids]
             # we trim to model.n_pos_embeddings-3 to be able to add the eos and bos and fit to network
+            print(observations[0]['agent'].history['str_info'])
             infos = [obs['agent'].history['info'][:self.model.n_pos_embeddings - 3] for obs in valid_observations]
             infos = [([self.vocab.info_bos_id] + ifo + [self.vocab.info_eos_id] if len(ifo) else ifo) for ifo in infos]
             dialogs = [list(obs['agent'].history['dialog'])[-self.model.n_pos_embeddings + 1:] for obs in
@@ -310,7 +310,12 @@ class TransformerAgent(Agent):
             pred_texts = self.searcher.search(enc_contexts)
 
             for i in range(batch_size):
-                pred_text_str, pred_text = self._postprocess_text(pred_texts[i], valid_observations[i]['agent'])
+                # this is with retrieval bot
+                #pred_text_str, pred_text = self._postprocess_text(pred_texts[i], valid_observations[i]['agent'])
+
+                # wihtout retrieval bot
+                pred_text_str = self.vocab.ids2string(pred_texts[i])
+                pred_text = pred_texts[i]
 
                 valid_observations[i]['agent'].history['dialog'].extend([self.vocab.talker2_bos_id] +
                                                                         pred_text +
@@ -320,6 +325,10 @@ class TransformerAgent(Agent):
 
             if self.opt['rank_candidates']:
                 candidates = [list(obs.get('label_candidates', [])) for obs in valid_observations]
+
+                # for i in range(len(candidates)):
+                #     candidates[i].append(observations[i]['agent'].history['str_info'].split('.')[0])
+
                 lens_candidates = [len(c) for c in candidates]
 
                 if max(lens_candidates) > 0:
@@ -345,12 +354,32 @@ class TransformerAgent(Agent):
                             if i < lens_candidates[k]:
                                 scores[k].append(s.item())
 
+
+                        # my_candidate = to_tensor(observations[i]['agent'].history['info'])[:self.model.n_pos_embeddings - 1]
+                        # my_candidate = pad_sequence(my_candidate.unsqueeze(0), batch_first=True, padding_value=self.model.padding_idx)
+                        #
+                        # my_candidate = my_candidate.cuda()
+                        # logit = self.model.decode(my_candidate[:, :-1], enc_contexts)
+                        # log_prob = F.log_softmax(logit, dim=-1)
+                        # log_prob = torch.gather(log_prob, -1, my_candidate[:, 1:].unsqueeze(-1)).squeeze(-1)
+                        # log_prob.masked_fill_(current_cands[:, 1:].eq(self.model.padding_idx), 0)
+                        #
+                        # my_scores = log_prob.sum(dim=-1) / len(my_candidate)
+
+
+
                     ranked_ids = [sorted(range(len(s)), key=lambda k: s[k], reverse=True) for s in scores]
                     ranked_strings = [[c[i] for i in ids] for ids, c in zip(ranked_ids, candidates)]
 
                     for i in range(batch_size):
                         batch_reply[valid_ids[i]]['text_candidates'] = ranked_strings[i]
 
+                        # conversation = observations[i]['text']
+                        # choosed = ranked_strings[i][0]
+                        # label = observations[i]['eval_labels']
+                        # print("conversation ", conversation)
+                        # print("choosed: "+str(i), choosed)
+                        # print("label "+str(i), label)
         except Exception as e:
             # raise e
             print(e)
@@ -389,20 +418,37 @@ class TransformerAgent(Agent):
 
             enc_contexts = [self.model.encode(c) for c in context]
 
-            partial_out = to_tensor(' '.join(partial_out))[:self.model.n_pos_embeddings - 1]
-            partial_out = pad_sequence(partial_out.unsqueeze(0), batch_first=True, padding_value=self.model.padding_idx)
+            # pred_texts = self.searcher.search(enc_contexts)
+            # str_reply = self.vocab.ids2string(pred_texts[0])
+            # print(str_reply)
+
+
+            partial_out_id = to_tensor(' '.join(partial_out))[:self.model.n_pos_embeddings - 1]
+            partial_out_id = pad_sequence(partial_out_id.unsqueeze(0), batch_first=True, padding_value=self.model.padding_idx)
             if self.use_cuda:
-                partial_out = partial_out.cuda()
+                partial_out_id = partial_out_id.cuda()
 
             with torch.no_grad():
-                logits = self.model.decode(partial_out, enc_contexts)
+                outputs, _ = self.model.transformer_module(partial_out_id, enc_contexts)
 
-            probs = F.softmax(logits[0, -1], dim=0)
+            logits = self.model.generate(outputs[:, -1, :]).squeeze(0)
+            probs = F.softmax(logits)
+
+            print(self.prefix2words[probs.argmax().item()], self.vocab.id2token[probs.argmax().item()])
+            print()
+            #probs = probs[torch.randperm(len(probs))]
 
             dist = {}
             for prefix_id, words in self.prefix2words.items():
                 for word, ratio in words.items():
                     dist[word] = probs[prefix_id].item() * ratio
+
+            # values = list(dist.values())
+            # keys = list(dist.keys())
+            # random.shuffle(values)
+            # dist1 = {}
+            # for key, value in zip(keys, values):
+            #     dist1[key] = value
             return dist
 
     def share(self):
