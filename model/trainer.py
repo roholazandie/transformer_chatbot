@@ -42,8 +42,11 @@ class Trainer:
                 'optimizer': self.optimizer.state_dict()}
 
     def load_state_dict(self, state_dict):
-        self.model.load_state_dict(state_dict['model'], strict=False)
-        self.optimizer.load_state_dict(state_dict['optimizer'])
+        if 'model' in state_dict:
+            self.model.load_state_dict(state_dict['model'], strict=False)
+            self.optimizer.load_state_dict(state_dict['optimizer'])
+        else:
+            self.model.load_state_dict(state_dict)
 
     def train_epoch(self, epoch, data, risk_func=None, experiment=None):
         self.model.train()  # set the model to training mode(this is not training)
@@ -66,10 +69,10 @@ class Trainer:
                 enc_contexts.append(enc_context)
 
                 if self.lm_weight > 0:
-                    context_outputs = self.model.generate(enc_context[0])  #we select the zero element because it's the real encoding, the enc_context[1] is padding_mask gives presoftmax weights
+                    context_logits = self.model.generate(enc_context[0])  #we select the zero element because it's the real encoding, the enc_context[1] is padding_mask gives presoftmax weights
                     ignore_mask = torch.stack([context == idx for idx in self.ignore_idxs], dim=-1).any(dim=-1)
                     context = context.masked_fill_(ignore_mask, self.model.padding_idx) #this line and the previous one removes the special characters
-                    prevs, nexts = context_outputs[:, :-1, :].contiguous(), context[:, 1:].contiguous()
+                    prevs, nexts = context_logits[:, :-1, :].contiguous(), context[:, 1:].contiguous()
                     batch_lm_loss += (self.lm_criterion(prevs.view(-1, prevs.shape[-1]), nexts.view(-1)) / len(contexts))
 
             # s2s loss
@@ -202,5 +205,5 @@ class Trainer:
             self.model.test(metric_funcs)
 
     def save_func(self, epoch):
-        torch.save(self.model.state_dict(), self.last_checkpoint_path)
+        torch.save(self.state_dict(), self.last_checkpoint_path)
         print("model saved for epoch ", epoch)
