@@ -108,6 +108,7 @@ class Trainer:
             if i % 10 == 0:
                 experiment.add_metric("Loss", loss)
                 experiment.add_metric("LM_Loss", lm_loss)
+                experiment.add_metric("Risk", risk_loss)
 
 
     def test_epoch(self, metric_funcs={}):
