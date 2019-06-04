@@ -4,7 +4,7 @@ import random
 
 from model.loss import LabelSmoothingLoss
 from utils.common import load_openai_weights, set_seed
-from utils.metrics import f1_risk, f1_score, bleu_score
+from utils.metrics import f1_risk, bleu_score
 from model.transformer_model import TransformerModel
 from model.trainer import Trainer
 from utils.text import BPEVocab
@@ -127,7 +127,7 @@ def main():
             after_epoch_func = []  # [save_func, sample_text_func, test_func]
             model_trainer.train(trainer_config.n_epochs,
                                 after_epoch_funcs=after_epoch_func,
-                                risk_func=f1_risk,
+                                risk_func=bleu_score,
                                 experiment=experiment)
 
 

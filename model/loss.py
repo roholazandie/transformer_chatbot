@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from model.config import get_model_config
+from utils.text import BPEVocab
+
 class LabelSmoothingLoss(nn.Module): #todo should be replaced with below class
     def __init__(self, n_labels, smoothing=0.0, ignore_index=-100, size_average=True):
         super(LabelSmoothingLoss, self).__init__()
@@ -94,6 +97,9 @@ class RiskLoss(nn.Module):
         self.model = model
         self.searcher = searcher
         self.device = device
+
+        model_config = get_model_config()
+        self.vocab = BPEVocab.from_files(model_config.bpe_vocab_path, model_config.bpe_codes_path)
 
     def forward(self, enc_contexts, targets):
         beams, beam_lengths = self.searcher.search(enc_contexts, return_beams=True)

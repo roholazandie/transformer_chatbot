@@ -58,23 +58,10 @@ def f1_risk(predictions, targets):
     return [1 - s for s in scores]
 
 
-def bleu_score(predictions, labels): #todo this is redundant: remove it
-    """Approximate BLEU score computation between labels and predictions.
-
-  An approximate BLEU scoring method since we do not glue word pieces or
-  decode the ids and tokenize the output. By default, we use ngram order of 4
-  and use brevity penalty. Also, this does not have beam search.
-
-  Args:
-    logits: Tensor of size [batch_size, length_logits, vocab_size]
-    labels: Tensor of size [batch-size, length_labels]
-
-  Returns:
-    bleu: int, approx bleu score
-  """
-    #predictions = np.argmax(logits, axis=-1)
-    bleu = compute_bleu(labels, predictions)
-    return bleu
+def bleu_score(predictions, targets): #todo this is redundant: remove it
+    scores = [1 - compute_bleu([prediction], [target]) for prediction, target in zip(predictions, targets)]
+    #bleu = compute_bleu(labels, predictions)
+    return scores
 
 
 def _get_ngrams_with_counter(segment, max_order):
